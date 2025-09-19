@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker exec:*)",
+      "Bash(curl:*)",
+      "Bash(docker logs:*)",
+      "Bash(mvn clean:*)",
+      "Bash(powershell:*)",
+      "Bash(del temp_body.json)",
+      "Bash(docker-compose:*)",
+      "Bash(findstr:*)",
+      "Bash(mongosh:*)",
+      "Bash(mongo:*)",
+      "Bash(telnet:*)",
+      "Bash(docker port:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker compose restart:*)",
+      "Bash(chmod:*)",
+      "Bash(./scripts/submit-job.sh:*)",
+      "Bash(echo:*)",
+      "Bash(cat:*)",
+      "Bash(timeout 10 docker exec etl-flink-project-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic etl.input.v1 --offset latest --partition 0 --max-messages 5)",
+      "Bash(timeout 5 docker exec etl-flink-project-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic etl.config.v1 --from-beginning --timeout-ms 3000)",
+      "Bash(timeout 3 docker exec etl-flink-project-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic etl.config.v1 --from-beginning --timeout-ms 2000)",
+      "Bash(del datauser3-sensors.json datasensors.json temp_body.json)",
+      "Bash(del:*)",
+      "Bash(grep:*)",
+      "Bash(docker:*)",
+      "Bash(timeout:*)",
+      "WebFetch(domain:localhost)",
+      "Bash(python:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "jobId": "user2-job",
+  "source": "data/sensors.json",
+  "transformations": [
+    {
+      "type": "filter_greater",
+      "params": {
+        "field": "measurement",
+        "threshold": 50.0
+      }
+    },
+    {
+      "type": "max",
+      "keyBy": "sensor"
+    }
+  ],
+  "outputTopic": "etl.output.v1"
+}

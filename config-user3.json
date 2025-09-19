@@ -1,0 +1,27 @@
+{
+  "jobId": "user3-job",
+  "source": "data/sensors.json",
+  "transformations": [
+    {
+      "type": "filter_less",
+      "params": {
+        "field": "measurement",
+        "threshold": 200.0
+      }
+    },
+    {
+      "type": "lowercase"
+    },
+    {
+      "type": "normalize_string",
+      "params": {
+        "fields": ["sensor", "measurement_unit"]
+      }
+    },
+    {
+      "type": "min",
+      "keyBy": "sensor"
+    }
+  ],
+  "outputTopic": "etl.output.v1"
+}

@@ -1,0 +1,17 @@
+{
+  "jobId": "user4-job",
+  "source": "data/sensors.json",
+  "transformations": [
+    {
+      "type": "extract_month"
+    },
+    {
+      "type": "uppercase"
+    },
+    {
+      "type": "sum",
+      "keyBy": "sensor"
+    }
+  ],
+  "outputTopic": "etl.output.v1"
+}

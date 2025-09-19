@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: etl-file-producer
+
+kafka:
+  bootstrap:
+    servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+  input:
+    topic: ${INPUT_TOPIC:etl.input.v1}
+
+producer:
+  rate:
+    per:
+      sec: ${RATE_PER_SEC:10}
+  data:
+    file: ${DATA_FILE:/data/sensors.json}
+  loop:
+    enabled: true
+  job:
+    id: ${PRODUCER_JOB_ID:default-job}
+
+logging:
+  level:
+    com.etl.producer: INFO
+    org.apache.kafka: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
