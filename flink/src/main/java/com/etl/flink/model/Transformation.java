@@ -2,10 +2,12 @@ package com.etl.flink.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.io.Serializable;
 import java.util.Map;
 import java.util.Objects;
 
-public class Transformation {
+public class Transformation implements Serializable {
+    private static final long serialVersionUID = 1L;
     @JsonProperty("type")
     private String type;
 

@@ -72,7 +72,7 @@ public class WindowedAggregations {
         }
     }
 
-    public static class WindowEventFunction implements WindowFunction<SensorEvent, SensorEvent, String, TimeWindow> {
+    public static class WindowEventFunction implements WindowFunction<SensorEvent, WindowedSensorEvent, String, TimeWindow> {
         private final String aggregationType;
         private final String field;
 
@@ -82,16 +82,22 @@ public class WindowedAggregations {
         }
 
         @Override
-        public void apply(String key, TimeWindow window, Iterable<SensorEvent> input, Collector<SensorEvent> out) throws Exception {
+        public void apply(String key, TimeWindow window, Iterable<SensorEvent> input, Collector<WindowedSensorEvent> out) throws Exception {
             Iterator<SensorEvent> iterator = input.iterator();
             if (iterator.hasNext()) {
                 SensorEvent event = iterator.next();
-                SensorEvent result = new SensorEvent(
+                WindowedSensorEvent result = new WindowedSensorEvent(
                         key,
                         event.getMeasurement(),
-                        aggregationType + "_" + field,
-                        Instant.ofEpochMilli(window.getStart())
+                        event.getMeasurementUnit(),
+                        event.getDatetime(),
+                        Instant.ofEpochMilli(window.getStart()),
+                        Instant.ofEpochMilli(window.getEnd())
                 );
+                // Copy jobId if it exists
+                if (event.getJobId() != null) {
+                    result.setJobId(event.getJobId());
+                }
                 out.collect(result);
             }
         }
@@ -107,6 +113,29 @@ public class WindowedAggregations {
                 return new MinReduceFunction(field);
             default:
                 throw new IllegalArgumentException("Unknown aggregation type: " + type);
+        }
+    }
+
+    /**
+     * Windowed sensor event that includes window boundaries
+     */
+    public static class WindowedSensorEvent extends SensorEvent {
+        private final Instant windowStart;
+        private final Instant windowEnd;
+
+        public WindowedSensorEvent(String sensor, Double measurement, String measurementUnit,
+                                 Instant datetime, Instant windowStart, Instant windowEnd) {
+            super(sensor, measurement, measurementUnit, datetime);
+            this.windowStart = windowStart;
+            this.windowEnd = windowEnd;
+        }
+
+        public Instant getWindowStart() {
+            return windowStart;
+        }
+
+        public Instant getWindowEnd() {
+            return windowEnd;
         }
     }
 }

@@ -1,6 +1,6 @@
 {
   "jobId": "user4-job",
-  "source": "data/sensors.json",
+  "source": "random-sensor-stream",
   "transformations": [
     {
       "type": "extract_month"

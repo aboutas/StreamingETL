@@ -1,0 +1,14 @@
+{
+  "jobId": "test-random",
+  "source": "kafka://etl.input.v1", 
+  "transformations": [
+    {
+      "type": "max",
+      "keyBy": "sensor",
+      "window": "10s",
+      "params": {
+        "field": "measurement"
+      }
+    }
+  ]
+}

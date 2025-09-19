@@ -4,6 +4,8 @@ import com.etl.flink.model.EtlConfig;
 import com.etl.flink.model.EtlResult;
 import com.etl.flink.model.SensorEvent;
 import com.etl.flink.process.EtlCoFlatMapFunction;
+import com.etl.flink.process.EtlWindowProcessor;
+import com.etl.flink.process.WindowedConfigProcessor;
 import com.etl.flink.sink.MongoSink;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -94,9 +96,10 @@ public class EtlFlinkJob {
                 .filter(event -> event != null)
                 .keyBy(event -> "universal"); // Use universal key for all data
 
+        // New approach: Use WindowedConfigProcessor to dynamically create windowed streams
         DataStream<EtlResult> processedStream = configStream
                 .connect(eventStream)
-                .flatMap(new EtlCoFlatMapFunction());
+                .flatMap(new WindowedConfigProcessor());
 
         processedStream.addSink(new MongoSink(mongoUri));
 

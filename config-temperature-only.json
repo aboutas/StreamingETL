@@ -1,0 +1,21 @@
+{
+  "jobId": "temperature-only",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "filter_equals",
+      "params": {
+        "field": "sensor",
+        "value": "temperature"
+      }
+    },
+    {
+      "type": "max",
+      "keyBy": "sensor",
+      "window": "10s",
+      "params": {
+        "field": "measurement"
+      }
+    }
+  ]
+}

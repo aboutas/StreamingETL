@@ -2,10 +2,12 @@ package com.etl.flink.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.io.Serializable;
 import java.util.List;
 import java.util.Objects;
 
-public class EtlConfig {
+public class EtlConfig implements Serializable {
+    private static final long serialVersionUID = 1L;
     @JsonProperty("jobId")
     private String jobId;
 

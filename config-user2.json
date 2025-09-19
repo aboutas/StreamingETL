@@ -1,6 +1,6 @@
 {
   "jobId": "user2-job",
-  "source": "data/sensors.json",
+  "source": "random-sensor-stream",
   "transformations": [
     {
       "type": "filter_greater",

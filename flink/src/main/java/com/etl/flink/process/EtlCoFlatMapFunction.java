@@ -5,7 +5,11 @@ import com.etl.flink.model.EtlResult;
 import com.etl.flink.model.SensorEvent;
 import com.etl.flink.model.Transformation;
 import com.etl.flink.udf.ElementTransformations;
+import com.etl.flink.udf.WindowedAggregations;
 import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
+import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
+import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.configuration.Configuration;
@@ -185,12 +189,12 @@ public class EtlCoFlatMapFunction extends RichCoFlatMapFunction<EtlConfig, Senso
         result.setResult(getFieldValue(event, field));
         result.setProcessedAt(Instant.now());
 
-        // For window-based aggregations, we would set window bounds here
-        // Currently treating as single-event results
+        // Note: This function processes single events.
+        // For proper windowing, use createWindowedAggregationStream() method instead
         if (transformation.getWindow() != null) {
-            diagnostics.add("Window aggregation '" + transformation.getWindow() + "' processed as single event (windowing not fully implemented)");
+            diagnostics.add("Note: Single-event processing. Use createWindowedAggregationStream() for proper windowing");
         } else {
-            diagnostics.add("Applied " + transformation.getType() + " aggregation");
+            diagnostics.add("Applied " + transformation.getType() + " aggregation (single event)");
         }
 
         if (!diagnostics.isEmpty()) {
@@ -198,6 +202,74 @@ public class EtlCoFlatMapFunction extends RichCoFlatMapFunction<EtlConfig, Senso
         }
 
         out.collect(result);
+    }
+
+    /**
+     * Creates a windowed aggregation stream for a given transformation.
+     * This method should be called from the main job to set up proper windowing.
+     */
+    public static DataStream<EtlResult> createWindowedAggregationStream(
+            DataStream<SensorEvent> eventStream,
+            Transformation transformation,
+            EtlConfig config) {
+
+        String field = getFieldFromParamsStatic(transformation.getParams(), "measurement");
+        String keyBy = transformation.getKeyBy() != null ? transformation.getKeyBy() : "sensor";
+        String windowStr = transformation.getWindow() != null ? transformation.getWindow() : "1s";
+
+        // Parse window duration
+        Time windowSize = parseWindowDuration(windowStr);
+
+        return eventStream
+            .filter(event -> event != null)
+            .keyBy(event -> getGroupingKeyFromEventStatic(event, keyBy))
+            .window(TumblingEventTimeWindows.of(windowSize))
+            .reduce(
+                WindowedAggregations.createAggregation(transformation.getType(), field),
+                new WindowedAggregations.WindowEventFunction(transformation.getType(), field)
+            )
+            .map(new WindowedResultMapper(config, transformation, keyBy, field));
+    }
+
+    private static String getFieldFromParamsStatic(Map<String, Object> params, String defaultField) {
+        if (params != null && params.containsKey("field")) {
+            return (String) params.get("field");
+        }
+        return defaultField;
+    }
+
+    private static String getGroupingKeyFromEventStatic(SensorEvent event, String keyBy) {
+        switch (keyBy) {
+            case "sensor":
+                return event.getSensor() != null ? event.getSensor() : "unknown";
+            case "measurement_unit":
+                return event.getMeasurementUnit() != null ? event.getMeasurementUnit() : "unknown";
+            case "jobId":
+                return event.getJobId() != null ? event.getJobId() : "unknown";
+            default:
+                return "unknown";
+        }
+    }
+
+    private static Time parseWindowDuration(String windowStr) {
+        if (windowStr == null || windowStr.isEmpty()) {
+            return Time.seconds(1); // Default to 1 second
+        }
+
+        String numStr = windowStr.substring(0, windowStr.length() - 1);
+        char unit = windowStr.charAt(windowStr.length() - 1);
+
+        try {
+            int duration = Integer.parseInt(numStr);
+            switch (unit) {
+                case 's': return Time.seconds(duration);
+                case 'm': return Time.minutes(duration);
+                case 'h': return Time.hours(duration);
+                default: return Time.seconds(1);
+            }
+        } catch (NumberFormatException e) {
+            return Time.seconds(1); // Default fallback
+        }
     }
 
     private String getFieldFromParams(Map<String, Object> params, String defaultField) {

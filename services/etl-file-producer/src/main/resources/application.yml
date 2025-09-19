@@ -18,6 +18,7 @@ producer:
     enabled: true
   job:
     id: ${PRODUCER_JOB_ID:default-job}
+  mode: ${PRODUCER_MODE:file}
 
 logging:
   level:

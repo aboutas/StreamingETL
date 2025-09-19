@@ -19,7 +19,10 @@ import java.io.FileReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 import java.util.Properties;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
@@ -44,15 +47,25 @@ public class FileProducerService {
     @Value("${producer.job.id:default-job}")
     private String defaultJobId;
 
+    @Value("${producer.mode:file}")
+    private String producerMode; // "file" or "random"
+
     private KafkaProducer<String, String> kafkaProducer;
     private ObjectMapper objectMapper;
     private final AtomicBoolean running = new AtomicBoolean(true);
+    private final Random random = new Random();
+    private final String[] sensorTypes = {"temperature", "pressure", "humidity"};
+    private final String[] locations = {"room-a", "room-b", "room-c", "room-d"};
 
     @Bean
     public ApplicationRunner startProducer() {
         return args -> {
             initializeKafkaProducer();
-            startFileProduction();
+            if ("random".equals(producerMode)) {
+                startRandomDataProduction();
+            } else {
+                startFileProduction();
+            }
         };
     }
 
@@ -75,6 +88,7 @@ public class FileProducerService {
         LOG.info("Data file path: {}", dataFilePath);
         LOG.info("Loop enabled: {}", loopEnabled);
         LOG.info("Default Job ID: {}", defaultJobId);
+        LOG.info("Producer mode: {}", producerMode);
     }
 
     private void startFileProduction() {
@@ -148,6 +162,96 @@ public class FileProducerService {
                 LOG.error("Fatal error in file production", e);
             }
         }, "file-producer-thread").start();
+    }
+
+    private void startRandomDataProduction() {
+        new Thread(() -> {
+            try {
+                LOG.info("Starting random data production mode");
+
+                long intervalMs = 1000L / ratePerSec;
+                long messageCount = 0;
+
+                while (running.get()) {
+                    try {
+                        String sensorData = generateRandomSensorData();
+                        String key = generateKey(sensorData);
+                        ProducerRecord<String, String> record = new ProducerRecord<>(inputTopic, key, sensorData);
+
+                        kafkaProducer.send(record, (metadata, exception) -> {
+                            if (exception != null) {
+                                LOG.error("Failed to send message to Kafka: {}", sensorData, exception);
+                            } else {
+                                LOG.debug("Message sent successfully to partition: {} offset: {}",
+                                        metadata.partition(), metadata.offset());
+                            }
+                        });
+
+                        messageCount++;
+                        if (messageCount % 100 == 0) {
+                            LOG.info("Sent {} random messages to Kafka", messageCount);
+                        }
+
+                        Thread.sleep(intervalMs);
+
+                    } catch (Exception e) {
+                        LOG.error("Error generating random sensor data", e);
+                        Thread.sleep(1000);
+                    }
+                }
+
+                LOG.info("Random data production completed. Total messages sent: {}", messageCount);
+
+            } catch (Exception e) {
+                LOG.error("Fatal error in random data production", e);
+            }
+        }, "random-producer-thread").start();
+    }
+
+    private String generateRandomSensorData() {
+        try {
+            String sensorType = sensorTypes[random.nextInt(sensorTypes.length)];
+            String location = locations[random.nextInt(locations.length)];
+            String timestamp = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
+
+            double measurement;
+            String unit;
+
+            switch (sensorType) {
+                case "temperature":
+                    measurement = 15.0 + (random.nextDouble() * 35.0); // 15-50°C
+                    unit = "Celsius";
+                    break;
+                case "pressure":
+                    measurement = 980.0 + (random.nextDouble() * 60.0); // 980-1040 hPa
+                    unit = "hPa";
+                    break;
+                case "humidity":
+                    measurement = 30.0 + (random.nextDouble() * 60.0); // 30-90%
+                    unit = "percent";
+                    break;
+                default:
+                    measurement = random.nextDouble() * 100;
+                    unit = "units";
+            }
+
+            // Round to 1 decimal place
+            measurement = Math.round(measurement * 10.0) / 10.0;
+
+            // Create JSON object
+            var jsonObject = objectMapper.createObjectNode();
+            jsonObject.put("sensor", sensorType);
+            jsonObject.put("measurement", measurement);
+            jsonObject.put("measurement_unit", unit);
+            jsonObject.put("datetime", timestamp);
+            jsonObject.put("location", location);
+
+            return objectMapper.writeValueAsString(jsonObject);
+
+        } catch (Exception e) {
+            LOG.error("Error creating random sensor data", e);
+            return "{\"error\":\"Failed to generate data\"}";
+        }
     }
 
     private boolean isValidJson(String json) {

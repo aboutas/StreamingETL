@@ -28,7 +28,8 @@
       "Bash(docker:*)",
       "Bash(timeout:*)",
       "WebFetch(domain:localhost)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(mvn:*)"
     ],
     "deny": [],
     "ask": []

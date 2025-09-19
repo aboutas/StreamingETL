@@ -1,6 +1,6 @@
-# ETL Flink Project - Universal Data Source Architecture
+# ETL Flink Project - Real-Time Stream Processing with Random Data Generation
 
-A real-time ETL (Extract, Transform, Load) system built with Apache Flink, Kafka, and MongoDB that supports multiple user configurations processing the same universal data source simultaneously.
+A real-time ETL (Extract, Transform, Load) system built with Apache Flink, Kafka, and MongoDB that processes live sensor data streams with configurable windowed aggregations and transformations.
 
 ## 🏗️ Architecture Overview
 
@@ -10,25 +10,25 @@ A real-time ETL (Extract, Transform, Load) system built with Apache Flink, Kafka
 └─────────────────────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────┐    ┌──────────────────┐    ┌─────────────────────────────────┐
-│   sensors.json   │    │   config-user1   │    │        config-user2.json        │
-│  (Universal      │    │     .json        │    │    (threshold > 50.0)           │
-│  Data Source)    │    │ (threshold >100) │    │                                 │
-│   52 records     │    └─────────┬────────┘    └─────────────┬───────────────────┘
+│  Random Sensor   │    │   config-user1   │    │        config-user2.json        │
+│  Data Generator  │    │     .json        │    │    (threshold > 50.0)           │
+│  (Real-time)     │    │ (threshold >100) │    │                                 │
+│  5 msg/sec       │    └─────────┬────────┘    └─────────────┬───────────────────┘
 └─────────┬────────┘              │                           │
           │                       │                           │
           │                       ▼                           ▼
           │            ┌─────────────────────────────────────────────────────┐
-          │            │              ETL API (Port 8080)                    │
-          │            │        POST /config (Submit Configurations)         │
+          │            │          Kafka Console Producer                    │
+          │            │        (Config Submission via CLI)                 │
           │            └─────────────────┬───────────────────────────────────┘
           │                              │
           ▼                              ▼
 ┌─────────────────────┐         ┌─────────────────────┐
 │  File Producer      │         │     Kafka Topics    │
 │  (Port: Internal)   │         │                     │
-│  • Rate: 10 msg/sec │         │  etl.config.v1 ◄────┼── Config Stream
-│  • Loops infinitely │         │  etl.input.v1  ◄────┼── Data Stream
-│  • Adds jobId       │         │  etl.output.v1      │
+│  • Rate: 5 msg/sec  │         │  etl.config.v1 ◄────┼── Config Stream
+│  • Random data      │         │  etl.input.v1  ◄────┼── Data Stream
+│  • Current timestamps│        │  etl.output.v1      │
 └──────────┬──────────┘         └──────────┬──────────┘
            │                               │
            └───────────────────────────────┘
@@ -43,19 +43,19 @@ A real-time ETL (Extract, Transform, Load) system built with Apache Flink, Kafka
                │  │  │Config Source│    │Data Source  │    │  CoFlatMap  │  │ │
                │  │  │(Kafka)      │    │(Kafka)      │    │             │  │ │
                │  │  │             │    │             │    │┌───────────┐│  │ │
-               │  │  │Records: 2   │    │Records:14K+ │    ││MapState   ││  │ │
-               │  │  │             │    │(continuous) │    ││Multiple   ││  │ │
-               │  │  │             │    │             │    ││Configs    ││  │ │
+               │  │  │Records: 1+  │    │Records:∞    │    ││MapState   ││  │ │
+               │  │  │             │    │(continuous) │    ││Configs    ││  │ │
+               │  │  │             │    │             │    ││Active     ││  │ │
                │  │  └──────┬──────┘    └──────┬──────┘    │└───────────┘│  │ │
                │  │         │                  │           └─────┬───────┘  │ │
                │  │         └──────────────────┼─────────────────┘          │ │
                │  │                            │                            │ │
                │  │         ┌──────────────────▼─────────────────┐          │ │
-               │  │         │     ETL Processing Engine          │          │ │
-               │  │         │  • Filter (measurement > threshold)│          │ │
-               │  │         │  • Aggregate (max by sensor type) │          │ │
-               │  │         │  • Process EACH event against     │          │ │
-               │  │         │    ALL stored configurations      │          │ │
+               │  │         │    ETL Processing Engine           │          │ │
+               │  │         │  • Windowed Aggregations (10s)    │          │ │
+               │  │         │  • Filter transformations         │          │ │
+               │  │         │  • Duplicate config prevention    │          │ │
+               │  │         │  • Real-time processing           │          │ │
                │  │         └──────────────┬─────────────────────┘          │ │
                │  └────────────────────────┼────────────────────────────────┘ │
                └───────────────────────────┼──────────────────────────────────┘
@@ -69,74 +69,84 @@ A real-time ETL (Extract, Transform, Load) system built with Apache Flink, Kafka
                │  │  (stdout logs)  │              │   (Dynamic Collections) │ │
                │  │                 │              │                         │ │
                │  │  ETL Results>   │              │  ┌─────────────────────┐ │ │
-               │  │  user1-job: 107 │              │  │    user1_job        │ │ │
-               │  │  user2-job: 61  │              │  │  (3 documents)      │ │ │
-               │  │  ...            │              │  └─────────────────────┘ │ │
-               │  └─────────────────┘              │  ┌─────────────────────┐ │ │
-               │                                   │  │    user2_job        │ │ │
-               │                                   │  │  (4 documents)      │ │ │
-               │                                   │  └─────────────────────┘ │ │
-               │                                   └─────────────────────────┘ │
+               │  │  test-random:   │              │  │    test_random      │ │ │
+               │  │  temp: 35.2     │              │  │  (69+ documents)    │ │ │
+               │  │  humidity: 57.8 │              │  │  Growing in real-   │ │ │
+               │  │  pressure:1038.1│              │  │  time with windows  │ │ │
+               │  └─────────────────┘              │  └─────────────────────┘ │ │
                └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                              KEY FEATURES                                       │
 │                                                                                 │
-│ ✅ Universal Data Source: Single sensors.json feeds multiple configurations    │
-│ ✅ CoFlatMap Processing: Multiple configs process same data simultaneously      │
-│ ✅ Dynamic Collections: Each jobId gets separate MongoDB collection            │
-│ ✅ Real-time Streaming: Continuous data flow at 10 messages/second            │
-│ ✅ Fault Tolerance: Kafka persistence + Flink checkpointing                   │
-│ ✅ Scalable Architecture: Horizontal scaling support                           │
+│ ✅ Random Data Generation: Real-time sensor data with current timestamps       │
+│ ✅ Windowed Processing: 10-second windows for time-based aggregations          │
+│ ✅ Duplicate Prevention: Prevents same config resubmission                     │
+│ ✅ Growing Collections: MongoDB documents increase with each window             │
+│ ✅ Real-time Streaming: Continuous data flow at 5 messages/second              │
+│ ✅ Fault Tolerance: Kafka persistence + Flink checkpointing                    │
+│ ✅ Single Collection Output: One collection per jobId (no config metadata)     │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 🔄 Data Flow Diagram - Detailed Processing Pipeline
+## 🔄 Data Flow - Real-Time Random Sensor Stream
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         DETAILED DATA FLOW & PARSING                           │
+│                         RANDOM DATA GENERATION PIPELINE                        │
 └─────────────────────────────────────────────────────────────────────────────────┘
 
-📁 data/sensors.json (52 records) ──► FileProducerService (loops @ 10 msg/sec)
-│
-│ Raw JSON Records (as they come):
-│ {"sensor": "temperature", "measurement": 23.5, "timestamp": "2024-01-15T10:30:00Z"}
-│ {"sensor": "pressure", "measurement": 1013.2, "timestamp": "2024-01-15T10:30:01Z"}
-│ {"sensor": "humidity", "measurement": 65.8, "timestamp": "2024-01-15T10:30:02Z"}
-│
-▼
+🎲 Random Sensor Data Generator (FileProducerService):
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  Mode: RANDOM                                                                   │
+│  Rate: 5 messages/second                                                        │
+│  Sensors: temperature, humidity, pressure                                       │
+│  Locations: room-a, room-b, room-c, room-d                                     │
+│  Timestamps: Current time (2025-09-19T14:50:XX)                                │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                    ▼
+📨 Generated JSON Messages:
+{
+  "sensor": "humidity",
+  "measurement": 68.2,
+  "measurement_unit": "percent",
+  "datetime": "2025-09-19T14:50:44Z",
+  "location": "room-d"
+}
+                                    ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                            KAFKA STREAMING LAYER                               │
 └─────────────────────────────────────────────────────────────────────────────────┘
 
-Producer Enrichment:                 ┌──────────────────────────────────────┐
-Raw JSON + jobId field added ────►   │         etl.input.v1 Topic           │
+Producer Flow:                      ┌──────────────────────────────────────┐
+Random JSON → Kafka Producer ────►  │         etl.input.v1 Topic           │
                                      │  ┌────────────────────────────────────┤
-Example:                             │  │ {"sensor": "temperature",          │
-{                                    │  │  "measurement": 23.5,              │
-  "sensor": "temperature",           │  │  "timestamp": "2024-01-15...",     │
-  "measurement": 23.5,               │  │  "jobId": "universal-stream"}      │
-  "timestamp": "2024-01-15...",      │  └────────────────────────────────────┤
-  "jobId": "universal-stream"        │  │ Message Rate: ~10/sec              │
-}                                    │  │ Total Messages: 14,000+ continuous │
+Real-time Example:                   │  │ {"sensor": "temperature",          │
+{                                    │  │  "measurement": 23.7,              │
+  "sensor": "temperature",           │  │  "datetime": "2025-09-19T...",     │
+  "measurement": 23.7,               │  │  "location": "room-a"}             │
+  "datetime": "2025-09-19T14:51:02Z",│  └────────────────────────────────────┤
+  "location": "room-a"               │  │ Message Rate: 5/sec continuous     │
+}                                    │  │ Growing indefinitely              │
                                      └──┴────────────────────────────────────┘
-▼
+                                    ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                           FLINK PROCESSING ENGINE                              │
 └─────────────────────────────────────────────────────────────────────────────────┘
 
 Config Stream (etl.config.v1)    │    Data Stream (etl.input.v1)
                                  │
-Config Example:                  │    Data Example:
+Config Example:                  │    Real-time Data Example:
 {                               │    {
-  "jobId": "user1-job",         │      "sensor": "temperature",
-  "transformations": [          │      "measurement": 107.2,
-    {                          │      "timestamp": "2024-01-15T...",
-      "type": "filter_greater", │      "jobId": "universal-stream"
-      "params": {              │    }
-        "field": "measurement", │
-        "threshold": 100.0      │
+  "jobId": "test-random",       │      "sensor": "humidity",
+  "source": "kafka://...",      │      "measurement": 68.2,
+  "transformations": [          │      "datetime": "2025-09-19T14:50:44Z",
+    {                          │      "location": "room-d"
+      "type": "max",           │    }
+      "keyBy": "sensor",       │
+      "window": "10s",         │
+      "params": {              │
+        "field": "measurement" │
       }                        │
     }                          │
   ]                            │
@@ -146,28 +156,27 @@ Config Example:                  │    Data Example:
 ┌─────────────────────────────▼─────────────────────────────────┐
 │                     CoFlatMapFunction                         │
 │                                                              │
-│  MapState<String, Config> configs  ◄─── Config Updates      │
-│           │                                                  │
-│           │  For EACH Data Event:                           │
-│           │  ┌─────────────────────────────────────────────┐ │
-│           └─►│  1. Parse JSON to SensorEvent object        │ │
-│              │     ↓                                       │ │
-│              │  2. Iterate through ALL stored configs      │ │
-│              │     ↓                                       │ │
-│              │  3. Apply transformations PER config:       │ │
-│              │     • Filter: measurement > threshold        │ │
-│              │     • KeyBy: group by sensor type           │ │
-│              │     • Aggregate: max/sum/avg operations     │ │
-│              │     ↓                                       │ │
-│              │  4. Generate results per config:            │ │
-│              │     EtlResult{                              │ │
-│              │       jobId: "user1-job",                   │ │
-│              │       result: 107.2,                        │ │
-│              │       aggregationType: "max",               │ │
-│              │       groupingField: "sensor",              │ │
-│              │       groupingKey: "temperature"            │ │
-│              │     }                                       │ │
-│              └─────────────────────────────────────────────┘ │
+│  WindowedConfigProcessor + EtlCoFlatMapFunction              │
+│                                                              │
+│  For EACH 10-second window:                                  │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │  1. Collect sensor data for window period               │ │
+│  │     ↓                                                   │ │
+│  │  2. Group by sensor type (keyBy: "sensor")             │ │
+│  │     ↓                                                   │ │
+│  │  3. Apply max aggregation per sensor:                  │ │
+│  │     • Temperature: max(23.7, 25.1, 32.3) = 32.3       │ │
+│  │     • Humidity: max(68.2, 55.5, 61.3) = 68.2          │ │
+│  │     • Pressure: max(1013.2, 1038.1) = 1038.1          │ │
+│  │     ↓                                                   │ │
+│  │  4. Generate windowed results:                         │ │
+│  │     EtlResult{                                          │ │
+│  │       jobId: "test-random",                             │ │
+│  │       result: 32.3,                                     │ │
+│  │       windowStart: "2025-09-19T14:50:10Z",             │ │
+│  │       windowEnd: "2025-09-19T14:50:20Z"                │ │
+│  │     }                                                   │ │
+│  └─────────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -177,74 +186,58 @@ Config Example:                  │    Data Example:
 
 Print Sink (Real-time Logs)          │     MongoDB Sink (Persistent Storage)
                                      │
-ETL Results> EtlResult{              │     ┌──────────────────────────────────┐
-  jobId='user1-job',                 │     │        etl_db Database           │
-  result=107.2,                      │     │                                  │
+ETL Results:1> EtlResult{            │     ┌──────────────────────────────────┐
+  jobId='test-random',               │     │        etl_db Database           │
+  result=32.3,                       │     │                                  │
   aggregationType='max',             │     │  ┌─────────────────────────────┐ │
-  groupingField='sensor',            │     │  │      user1_job Collection   │ │
-  groupingKey='temperature'          │     │  │  {                          │ │
-}                                    │     │  │    "_id": "job:user1-job|   │ │
-                                     │     │  │           g:sensor:temp|    │ │
-ETL Results> EtlResult{              │     │  │           agg:max|...",     │ │
-  jobId='user2-job',                 │     │  │    "jobId": "user1-job",    │ │
-  result=78.9,                       │     │  │    "result": 107.2,         │ │
-  aggregationType='max',             │     │  │    "aggregationType": "max", │ │
-  groupingField='sensor',            │     │  │    "groupingField": "sensor"│ │
-  groupingKey='humidity'             │     │  │  }                          │ │
-}                                    │     │  └─────────────────────────────┘ │
+  windowStart='2025-09-19T14:50:10Z',│     │  │   test_random Collection    │ │
+  windowEnd='2025-09-19T14:50:20Z'   │     │  │  {                          │ │
+}                                    │     │  │    "_id": "job:test-random| │ │
+                                     │     │  │     g:sensor:temperature|   │ │
+ETL Results:1> EtlResult{            │     │  │     ws:2025-09-19T14:50:10Z│ │
+  jobId='test-random',               │     │  │     we:2025-09-19T14:50:20Z│ │
+  result=68.2,                       │     │  │     agg:max|...",           │ │
+  aggregationType='max',             │     │  │    "jobId": "test-random",  │ │
+  groupingKey='humidity'             │     │  │    "result": 32.3,          │ │
+}                                    │     │  │    "windowStart": "...",    │ │
+                                     │     │  │    "windowEnd": "..."       │ │
+Rate: Every 10 seconds              │     │  │  }                          │ │
+(3 results per window)               │     │  └─────────────────────────────┘ │
                                      │     │                                  │
-Rate: ~2-10 results/sec             │     │  ┌─────────────────────────────┐ │
-(depends on data + config count)     │     │  │      user2_job Collection   │ │
-                                     │     │  │  (Similar structure with    │ │
-                                     │     │  │   different threshold)      │ │
-                                     │     │  └─────────────────────────────┘ │
+                                     │     │  Documents: 69+ and growing      │
+                                     │     │  Growth: +3 docs every 10s       │
                                      │     └──────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                            PARSING & TRANSFORMATION DETAILS                     │
+│                            WINDOWING & GROWTH PATTERN                          │
 └─────────────────────────────────────────────────────────────────────────────────┘
 
-🔍 Data Parsing Steps:
-1. JSON Deserialization: Kafka String → SensorEvent POJO
-2. Field Extraction: sensor, measurement, timestamp, jobId
-3. Type Conversion: measurement (String→Double), timestamp (String→Instant)
-4. Validation: Non-null checks, numeric validation
+🕐 Window Timeline (10-second windows):
+14:50:10-14:50:20 → 3 documents (temp, humidity, pressure max values)
+14:50:20-14:50:30 → 3 documents (temp, humidity, pressure max values)
+14:50:30-14:50:40 → 3 documents (temp, humidity, pressure max values)
+...continuously...
 
-🔄 Transformation Pipeline (per config):
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Filter    │───►│   KeyBy     │───►│  Aggregate  │───►│   Output    │
-│measurement  │    │   sensor    │    │    max()    │    │   Result    │
-│   > 100.0   │    │   type      │    │             │    │             │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+📈 Document Growth:
+- Every 10 seconds: +3 new documents
+- After 10 minutes: ~180 documents
+- After 1 hour: ~1,080 documents
+- Each document contains max value for one sensor type in one window
 
-📊 Multi-Config Processing:
-- SAME data event processed by ALL configurations simultaneously
-- Each config applies its own threshold and transformations
-- Results are tagged with respective jobId for separation
-- MongoDB collections are dynamically created per jobId
-
-🚀 Performance Characteristics:
-- Input Rate: 10 messages/second (configurable)
-- Processing Latency: <100ms per event
-- Throughput: Scales with number of configs (2 configs = ~2x results)
-- Memory Usage: MapState holds configs (typically <1MB per config)
+🔄 Real-time Processing:
+- Data flows continuously at 5 msg/sec
+- Windows process every 10 seconds
+- Results stored immediately in MongoDB
+- No duplicate configs (prevented by WindowedConfigProcessor)
 ```
-
 
 ## 📋 Prerequisites
 
 - Docker & Docker Compose
 - Java 17+ (for building Flink job)
 - Maven 3.6+
-- curl (for testing)
 
 ## 🚀 Quick Start
-
-### Prerequisites
-- Docker & Docker Compose
-- Java 17+ (for building Flink job)
-- Maven 3.6+
-- curl (for testing)
 
 ### 1. Start the System
 ```bash
@@ -276,113 +269,97 @@ curl -X POST http://localhost:8081/jars/{JAR_ID}/run -H "Content-Type: applicati
 
 ### 3. Test the System
 ```bash
-# Submit first configuration
-curl -X POST -H "Content-Type: application/json" -d @config-user1.json http://localhost:8080/config
-
-# Submit second configuration
-curl -X POST -H "Content-Type: application/json" -d @config-user2.json http://localhost:8080/config
+# Submit configuration (using Kafka console producer)
+echo '{"jobId":"test-random","source":"kafka://etl.input.v1","transformations":[{"type":"max","keyBy":"sensor","window":"10s","params":{"field":"measurement"}}]}' | docker exec -i etl-flink-project-kafka-1 kafka-console-producer --bootstrap-server localhost:9092 --topic etl.config.v1
 
 # Check results in MongoDB
 docker exec etl-flink-project-mongo-1 mongosh etl_db --eval "db.getCollectionNames()"
+docker exec etl-flink-project-mongo-1 mongosh etl_db --eval "db.test_random.countDocuments()"
 ```
 
 ## 🧪 Complete Testing Guide
 
-### Step 1: Verify System Health
+### Step 1: Verify Random Data Generation
 ```bash
-# Check all containers are running
-docker-compose ps
+# Check random data is being produced
+timeout 10 docker exec etl-flink-project-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic etl.input.v1 --offset latest --partition 0 --max-messages 5
 
-# Verify Flink UI is accessible
-curl http://localhost:8081
-
-# Verify ETL API is accessible
-curl http://localhost:8080/health
+# Expected output: Real-time JSON with current timestamps
+# {"sensor":"humidity","measurement":42.4,"datetime":"2025-09-19T14:48:44Z","location":"room-c"}
 ```
 
-### Step 2: Monitor Data Flow
+### Step 2: Submit Configuration
 ```bash
-# Check Kafka topic offsets (should show increasing numbers)
-docker exec etl-flink-project-kafka-1 kafka-run-class kafka.tools.GetOffsetShell --bootstrap-server localhost:9092 --topic etl.input.v1
+# Submit test config (as single-line JSON)
+echo '{"jobId":"test-windowed","source":"kafka://etl.input.v1","transformations":[{"type":"max","keyBy":"sensor","window":"10s","params":{"field":"measurement"}}]}' | docker exec -i etl-flink-project-kafka-1 kafka-console-producer --bootstrap-server localhost:9092 --topic etl.config.v1
 
-# Check file producer logs (should show cycling through data)
-docker logs etl-flink-project-etl-file-producer-1 --tail 10
+# Verify config was received
+timeout 5 docker exec etl-flink-project-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic etl.config.v1 --from-beginning --max-messages 1
 ```
 
-### Step 3: Test Configuration Submissions
-```bash
-# Submit user1 config (threshold > 100.0)
-curl -X POST -H "Content-Type: application/json" -d @config-user1.json http://localhost:8080/config
-# Expected: {"jobId":"user1-job","message":"Configuration submitted successfully","status":"success"}
-
-# Check Flink job metrics (Config Source should show 1 record)
-curl -s http://localhost:8081/jobs/{JOB_ID} | grep '"write-records"'
-```
-
-### Step 4: Verify Real-time Processing
+### Step 3: Monitor Real-time Processing
 ```bash
 # Watch Flink processing logs
 docker logs etl-flink-project-flink-taskmanager-1 --tail 20 | grep "ETL Results"
 
 # Expected output:
-# ETL Results> EtlResult{id='null', jobId='user1-job', result=107.2}
-# ETL Results> EtlResult{id='null', jobId='user1-job', result=1016.9}
+# ETL Results:1> EtlResult{jobId='test-windowed', result=57.8}
+# ETL Results:1> EtlResult{jobId='test-windowed', result=1038.1}
 ```
 
-### Step 5: Test Multi-Config Processing
+### Step 4: Verify MongoDB Growth
 ```bash
-# Submit second config (threshold > 50.0)
-curl -X POST -H "Content-Type: application/json" -d @config-user2.json http://localhost:8080/config
-
-# Verify Config Source now has 2 records
-curl -s http://localhost:8081/jobs/{JOB_ID} | grep -A 5 "Config Source"
-
-# Check logs show both configs processing
-docker logs etl-flink-project-flink-taskmanager-1 --tail 10 | grep -E "(user1-job|user2-job)"
-
-# Expected: Results for both jobIds with different threshold filtering
-```
-
-### Step 6: Verify MongoDB Collections
-```bash
-# List all collections (should see user1_job and user2_job)
+# Check collection creation
 docker exec etl-flink-project-mongo-1 mongosh etl_db --eval "db.getCollectionNames()"
 
-# Check user1_job collection
-docker exec etl-flink-project-mongo-1 mongosh etl_db --eval "
-  print('user1_job count:', db.user1_job.countDocuments());
-  db.user1_job.find().limit(2)
-"
+# Monitor document growth
+docker exec etl-flink-project-mongo-1 mongosh etl_db --eval "db.test_windowed.countDocuments()"
 
-# Check user2_job collection
-docker exec etl-flink-project-mongo-1 mongosh etl_db --eval "
-  print('user2_job count:', db.user2_job.countDocuments());
-  db.user2_job.find().limit(2)
-"
+# Wait 10 seconds and check again (should increase by ~3)
+sleep 10 && docker exec etl-flink-project-mongo-1 mongosh etl_db --eval "db.test_windowed.countDocuments()"
 ```
 
-### Step 7: Performance Validation
+### Step 5: Examine Document Structure
 ```bash
-# Check data production rate (should be ~10 messages/second)
-docker logs etl-flink-project-etl-file-producer-1 | grep "Sent.*messages"
+# View sample documents
+docker exec etl-flink-project-mongo-1 mongosh etl_db --eval "db.test_windowed.find().limit(3).forEach(printjson)"
 
-# Verify Flink job is processing data continuously
-curl -s http://localhost:8081/jobs/{JOB_ID} | grep '"write-records"'
-# Data Source write-records should be increasing
-
-# Check MongoDB growth over time
-docker exec etl-flink-project-mongo-1 mongosh etl_db --eval "
-  db.user1_job.countDocuments() + db.user2_job.countDocuments()
-"
+# Expected structure with windowing:
+# {
+#   "_id": "job:test-windowed|g:sensor:humidity|ws:2025-09-19T14:50:10Z|we:2025-09-19T14:50:20Z|...",
+#   "jobId": "test-windowed",
+#   "result": 57.8,
+#   "windowStart": "2025-09-19T14:50:10Z",
+#   "windowEnd": "2025-09-19T14:50:20Z",
+#   "groupingKey": "humidity"
+# }
 ```
 
 ## 📋 Configuration Examples
 
-### config-user1.json (High Threshold)
+### Basic Windowed Aggregation
+```json
+{
+  "jobId": "test-windowed",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "max",
+      "keyBy": "sensor",
+      "window": "10s",
+      "params": {
+        "field": "measurement"
+      }
+    }
+  ]
+}
+```
+
+### Filtered + Windowed Processing
 ```json
 {
   "jobId": "user1-job",
-  "source": "data/sensors.json",
+  "source": "kafka://etl.input.v1",
   "transformations": [
     {
       "type": "filter_greater",
@@ -393,143 +370,47 @@ docker exec etl-flink-project-mongo-1 mongosh etl_db --eval "
     },
     {
       "type": "max",
-      "keyBy": "sensor"
+      "keyBy": "sensor",
+      "window": "10s"
     }
   ],
   "outputTopic": "etl.output.v1"
 }
 ```
 
-### config-user2.json (Low Threshold)
+### Multi-transformation Pipeline
 ```json
 {
-  "jobId": "user2-job",
-  "source": "data/sensors.json",
+  "jobId": "user3-job",
+  "source": "kafka://etl.input.v1",
   "transformations": [
     {
-      "type": "filter_greater",
+      "type": "filter_less",
       "params": {
         "field": "measurement",
-        "threshold": 50.0
+        "threshold": 200.0
       }
     },
     {
-      "type": "max",
-      "keyBy": "sensor"
+      "type": "lowercase"
+    },
+    {
+      "type": "normalize_string",
+      "params": {
+        "fields": ["sensor", "measurement_unit"]
+      }
+    },
+    {
+      "type": "min",
+      "keyBy": "sensor",
+      "window": "10s"
     }
   ],
   "outputTopic": "etl.output.v1"
 }
 ```
 
-## 🔧 API Endpoints
-
-### ETL API (Port 8080)
-- `POST /config` - Submit ETL configuration
-- `GET /health` - Health check endpoint
-
-### Flink Web UI (Port 8081)
-- `GET /` - Flink dashboard
-- `GET /jobs` - List all jobs
-- `GET /jobs/{jobId}` - Job details and metrics
-
-### MongoDB (Port 27017)
-- Database: `etl_db`
-- Collections: `{jobId}` (e.g., `user1_job`, `user2_job`)
-
-### Kafka (Port 9092)
-- `etl.config.v1` - Configuration topic
-- `etl.input.v1` - Data input topic
-- `etl.output.v1` - Processing output topic
-
-
-## 🔍 Troubleshooting
-
-### Common Issues
-
-**1. Flink Job Not Processing Data**
-```bash
-# Check if SensorEvent model matches JSON structure
-docker logs etl-flink-project-flink-taskmanager-1 | grep -i error
-
-# Verify Kafka connectivity
-docker exec etl-flink-project-kafka-1 kafka-topics --bootstrap-server localhost:9092 --list
-```
-
-**2. No Results in MongoDB**
-```bash
-# Check if MongoDB sink is working
-docker logs etl-flink-project-flink-taskmanager-1 | grep -i mongo
-
-# Verify MongoDB connection
-docker exec etl-flink-project-mongo-1 mongosh --eval "db.adminCommand('ping')"
-```
-
-**3. File Producer Not Sending Data**
-```bash
-# Check file producer logs
-docker logs etl-flink-project-etl-file-producer-1
-
-# Verify sensors.json exists and is readable
-docker exec etl-flink-project-etl-file-producer-1 ls -la /data/
-```
-
-### Performance Tuning
-
-**Increase Data Rate:**
-```yaml
-# In docker-compose.yml
-environment:
-  - RATE_PER_SEC=100  # Default: 10
-```
-
-**Disable Continuous Loop:**
-```yaml
-environment:
-  - PRODUCER_LOOP_ENABLED=false  # Default: true
-```
-
-**Flink Parallelism:**
-```yaml
-# In docker-compose.yml flink services
-environment:
-  FLINK_PROPERTIES: |
-    parallelism.default: 4  # Default: 2
-```
-
-
-## 📈 Expected Results
-
-### Metrics After 5 Minutes
-- **Kafka Messages**: ~3,000 in etl.input.v1
-- **Config Records**: 2 (one per submitted config)
-- **MongoDB Collections**: 2 (user1_job, user2_job)
-- **Processing Rate**: ~10 messages/second sustained
-
-### Sample MongoDB Documents
-```javascript
-// user1_job collection (threshold > 100.0)
-{
-  "_id": "job:user1-job|g:sensor:temperature|ws:none|we:none|agg:max|f:measurement|h:1447695077",
-  "jobId": "user1-job",
-  "result": 116.8,
-  "aggregationType": "max",
-  "groupingField": "sensor",
-  "groupingKey": "temperature"
-}
-
-// user2_job collection (threshold > 50.0)
-{
-  "_id": "job:user2-job|g:sensor:humidity|ws:none|we:none|agg:max|f:measurement|h:274338533",
-  "jobId": "user2-job",
-  "result": 78.9,
-  "aggregationType": "max",
-  "groupingField": "sensor",
-  "groupingKey": "humidity"
-}
-```
-
-## 🏗️ System Components
+## 🔧 System Architecture Components
 
 ### Services Overview
 | Service | Port | Purpose | Technology |
@@ -539,85 +420,134 @@ environment:
 | **MongoDB** | 27017 | Results storage | MongoDB 7.0 |
 | **Flink JobManager** | 8081 | Job coordination | Apache Flink 1.18 |
 | **Flink TaskManager** | - | Job execution | Apache Flink 1.18 |
-| **ETL API** | 8080 | Config management | Spring Boot |
-| **File Producer** | - | Data generation | Spring Boot |
+| **ETL API** | 8080 | Health checks | Spring Boot |
+| **File Producer** | - | Random data generation | Spring Boot |
 
-### Key Technologies
-- **Apache Flink 1.18**: Stream processing engine
-- **Apache Kafka 7.4**: Distributed streaming platform
-- **MongoDB 7.0**: Document database for results
-- **Spring Boot 3.x**: Microservices framework
-- **Docker Compose**: Container orchestration
+### Key Features
+- **Random Data Generation**: Real-time sensor data with current timestamps
+- **Windowed Processing**: Time-based aggregations (10-second windows)
+- **Duplicate Prevention**: Prevents resubmission of same configuration
+- **Growing Collections**: MongoDB documents increase with each window
+- **Single Output**: One collection per jobId (no config metadata duplicates)
 
-## 📚 Data Production Explained
+## 🔍 Troubleshooting
 
-### Why Many Records from 52-Line File?
+### Random Data Not Generating
+```bash
+# Check file producer mode
+docker logs etl-flink-project-etl-file-producer-1 | grep -i "mode\|random"
 
-The system produces thousands of records because:
+# Expected: "Producer mode: random"
+# If showing "file mode", recreate containers:
+docker-compose down && docker-compose up -d
+```
 
-1. **Streaming Simulation**: FileProducerService continuously loops through sensors.json
-2. **Rate Control**: 10 messages/second (RATE_PER_SEC=10)
-3. **Infinite Loop**: `PRODUCER_LOOP_ENABLED=true` restarts file after reaching end
-4. **Real-time ETL**: Mimics continuous sensor data streams
+### Config Submission Issues
+```bash
+# Check for JSON parsing errors
+docker logs etl-flink-project-flink-taskmanager-1 | grep -i "json\|parse"
 
-**Example**: After 10 minutes running:
-- File cycles: ~115 complete cycles (52 records × 115 = ~6,000 messages)
-- Rate check: 6,000 ÷ (10 min × 60s) = 10 msg/sec ✅
+# Common issue: Multi-line JSON submission
+# Solution: Use single-line JSON with echo command
+```
 
-### ETL Result Aggregation
-- **Input**: Thousands of individual sensor measurements
-- **Processing**: Filter + Max aggregation per sensor type
-- **Output**: Few consolidated results (max temperature, max pressure, max humidity)
-- **Storage**: Upserted to MongoDB (same _id updated, not duplicated)
+### No MongoDB Growth
+```bash
+# Check Flink job is processing
+curl -s http://localhost:8081/jobs | grep -i running
 
-**This continuous data flow enables realistic testing of:**
-- Time-based windows
-- Aggregation functions
-- System performance under load
-- Multi-user processing scenarios
+# Check for windowing issues
+docker logs etl-flink-project-flink-taskmanager-1 | grep -i window
+
+# Verify data is reaching Flink
+curl -s "http://localhost:8081/jobs/{JOB_ID}" | grep '"write-records"'
+```
+
+## 📈 Expected Results
+
+### After 5 Minutes Running
+- **Random Data**: Continuous generation at 5 msg/sec
+- **MongoDB Documents**: ~90 documents (3 per 10-second window)
+- **Window Pattern**: Regular 10-second intervals with current timestamps
+- **Growth Rate**: +3 documents every 10 seconds
+
+### Sample MongoDB Documents
+```javascript
+// test_random collection (windowed max aggregation)
+{
+  "_id": "job:test-random|g:sensor:humidity|ws:2025-09-19T14:50:10Z|we:2025-09-19T14:50:20Z|agg:max|f:measurement|h:783379260",
+  "jobId": "test-random",
+  "result": 57.8,
+  "aggregationType": "max",
+  "groupingField": "sensor",
+  "groupingKey": "humidity",
+  "windowStart": "2025-09-19T14:50:10Z",
+  "windowEnd": "2025-09-19T14:50:20Z",
+  "processedAt": "2025-09-19T14:50:19.941Z",
+  "diagnostics": [
+    "Applied max aggregation with 10s window",
+    "Window: 2025-09-19T14:50:10Z to 2025-09-19T14:50:20Z"
+  ]
+}
+```
 
 ## 📁 Project Structure
 
 ```
 etl-flink-project/
-├── config-user1.json          # User1 config (threshold > 100.0)
-├── config-user2.json          # User2 config (threshold > 50.0)
-├── config-user3.json          # User3 config (comprehensive transformations)
-├── config-user4.json          # User4 config (date extraction + sum)
-├── data/
-│   └── sensors.json           # Universal sensor data source (52 records)
-├── docker-compose.yml         # Service orchestration
-├── flink/                     # Flink ETL job module
-│   ├── pom.xml               # Flink project Maven configuration
-│   ├── Dockerfile            # Flink job container
+├── config-user1.json          # Sample config (threshold + max)
+├── config-user2.json          # Sample config (different threshold)
+├── config-user3.json          # Sample config (comprehensive transformations)
+├── config-user4.json          # Sample config (date extraction + sum)
+├── test_random_config.json     # Test config for windowed processing
+├── docker-compose.yml          # Service orchestration
+├── flink/                      # Flink ETL job module
+│   ├── pom.xml                # Flink project Maven configuration
+│   ├── Dockerfile             # Flink job container
 │   └── src/main/java/com/etl/flink/
-│       ├── EtlFlinkJob.java          # Main Flink job
-│       ├── model/                    # Data models
-│       ├── process/                  # CoFlatMap processing logic
-│       ├── sink/                     # MongoDB sink implementation
-│       └── udf/                      # User-defined functions
+│       ├── EtlFlinkJob.java           # Main Flink job
+│       ├── model/                     # Data models (EtlConfig, SensorEvent)
+│       ├── process/                   # Processing logic
+│       │   ├── EtlCoFlatMapFunction.java      # Main stream processor
+│       │   ├── WindowedConfigProcessor.java   # Config management + windowing
+│       │   ├── EtlWindowProcessor.java        # Window operations
+│       │   ├── WindowedResultMapper.java      # Result mapping
+│       ├── sink/                      # MongoDB sink implementation
+│       └── udf/                       # User-defined functions
 ├── services/
-│   ├── etl-api/              # REST API service
-│   └── etl-file-producer/    # Data streaming service
-├── pom.xml                   # Parent Maven configuration
-├── README.md                 # This documentation
-└── .gitignore               # Git ignore rules
+│   ├── etl-api/               # REST API service
+│   └── etl-file-producer/     # Random data generation service
+├── pom.xml                    # Parent Maven configuration
+├── README.md                  # This documentation
+└── .gitignore                # Git ignore rules
 ```
 
-### Key Components
-- **Configuration Files**: Ready-to-use configs testing different transformations
-- **Universal Data Source**: Single sensors.json feeds all configurations
-- **Flink Job**: Stream processing with CoFlatMap architecture
-- **Services**: API for config management + file producer for data streaming
-- **Docker Orchestration**: Complete containerized environment
+## 🚀 Real-Time Monitoring Commands
 
-## 📚 Additional Resources
+```bash
+# Monitor document growth in real-time
+watch -n 2 'docker exec etl-flink-project-mongo-1 mongosh etl_db --eval "db.test_random.countDocuments()"'
 
-- [Apache Flink Documentation](https://flink.apache.org/docs/)
-- [Kafka Streams Guide](https://kafka.apache.org/documentation/streams/)
-- [MongoDB Java Driver](https://docs.mongodb.com/drivers/java/)
-- [Docker Compose Reference](https://docs.docker.com/compose/)
+# Watch live data generation
+docker exec etl-flink-project-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic etl.input.v1 --offset latest
+
+# Monitor Flink processing
+docker logs etl-flink-project-flink-taskmanager-1 -f | grep "ETL Results"
+
+# Check Flink job metrics
+curl -s "http://localhost:8081/jobs/$(curl -s http://localhost:8081/jobs | grep -o '[a-f0-9]\{32\}')" | grep -E '"write-records"|read-records'
+```
 
 ---
 
-For questions or issues, please check the troubleshooting section or review the container logs using `docker logs <container-name>`.
+## 🌟 Key Improvements in This Version
+
+1. **✅ Real-time Random Data**: Moved from static file replay to live random generation
+2. **✅ Current Timestamps**: All data uses current timestamps, not 2025-01-15
+3. **✅ Windowed Processing**: 10-second time windows for realistic stream aggregations
+4. **✅ Growing MongoDB**: Documents increase continuously with each window
+5. **✅ Duplicate Prevention**: Prevents resubmission of same configuration
+6. **✅ Single Collections**: One collection per jobId (no config metadata duplication)
+7. **✅ Simplified Submission**: Direct Kafka console producer for config submission
+
+For questions or issues, check the troubleshooting section or review container logs using `docker logs <container-name>`.

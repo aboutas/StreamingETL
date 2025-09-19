@@ -1,6 +1,6 @@
 {
   "jobId": "user1-job",
-  "source": "data/sensors.json",
+  "source": "kafka://etl.input.v1",
   "transformations": [
     {
       "type": "filter_greater",
