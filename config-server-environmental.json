@@ -1,17 +1,18 @@
 {
-  "jobId": "user1-job",
+  "jobId": "server-environmental-job",
   "source": "kafka://etl.input.v1",
   "transformations": [
     {
-      "type": "filter_greater",
+      "type": "filter_less",
       "params": {
         "field": "measurement",
-        "threshold": 100.0
+        "threshold": 80.0
       }
     },
     {
-      "type": "max",
-      "keyBy": "sensor"
+      "type": "sum",
+      "keyBy": "location",
+      "window": "10s"
     }
   ],
   "outputTopic": "etl.output.v1"

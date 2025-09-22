@@ -1,17 +1,18 @@
 {
-  "jobId": "user2-job",
-  "source": "random-sensor-stream",
+  "jobId": "temperature-monitoring-job",
+  "source": "kafka://etl.input.v1",
   "transformations": [
     {
       "type": "filter_greater",
       "params": {
         "field": "measurement",
-        "threshold": 50.0
+        "threshold": 25.0
       }
     },
     {
       "type": "max",
-      "keyBy": "sensor"
+      "keyBy": "sensor",
+      "window": "5s"
     }
   ],
   "outputTopic": "etl.output.v1"

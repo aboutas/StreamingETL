@@ -59,6 +59,8 @@ public class WindowedResultMapper implements MapFunction<WindowedSensorEvent, Et
                 return event.getMeasurementUnit() != null ? event.getMeasurementUnit() : "unknown";
             case "jobId":
                 return event.getJobId() != null ? event.getJobId() : "unknown";
+            case "location":
+                return event.getLocation() != null ? event.getLocation() : "unknown";
             default:
                 return "unknown";
         }

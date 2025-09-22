@@ -29,7 +29,9 @@
       "Bash(timeout:*)",
       "WebFetch(domain:localhost)",
       "Bash(python:*)",
-      "Bash(mvn:*)"
+      "Bash(mvn:*)",
+      "Read(//c/Users/tboutas/MyProjects/**)",
+      "Bash(for:*)"
     ],
     "deny": [],
     "ask": []

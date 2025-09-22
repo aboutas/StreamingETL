@@ -46,6 +46,15 @@ public class EtlResult {
     @JsonProperty("processedAt")
     private Instant processedAt;
 
+    @JsonProperty("sensorType")
+    private String sensorType;
+
+    @JsonProperty("measurementUnit")
+    private String measurementUnit;
+
+    @JsonProperty("location")
+    private String location;
+
     public EtlResult() {}
 
     public String getId() {
@@ -150,6 +159,30 @@ public class EtlResult {
 
     public void setProcessedAt(Instant processedAt) {
         this.processedAt = processedAt;
+    }
+
+    public String getSensorType() {
+        return sensorType;
+    }
+
+    public void setSensorType(String sensorType) {
+        this.sensorType = sensorType;
+    }
+
+    public String getMeasurementUnit() {
+        return measurementUnit;
+    }
+
+    public void setMeasurementUnit(String measurementUnit) {
+        this.measurementUnit = measurementUnit;
+    }
+
+    public String getLocation() {
+        return location;
+    }
+
+    public void setLocation(String location) {
+        this.location = location;
     }
 
     @Override

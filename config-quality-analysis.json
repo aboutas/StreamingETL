@@ -1,0 +1,26 @@
+{
+  "jobId": "quality-analysis-job",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "filter_greater",
+      "params": {
+        "field": "measurement",
+        "threshold": 5.0
+      }
+    },
+    {
+      "type": "filter_less",
+      "params": {
+        "field": "measurement",
+        "threshold": 9.0
+      }
+    },
+    {
+      "type": "min",
+      "keyBy": "data_quality",
+      "window": "20s"
+    }
+  ],
+  "outputTopic": "etl.output.v1"
+}

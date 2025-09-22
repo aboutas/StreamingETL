@@ -54,8 +54,8 @@ public class FileProducerService {
     private ObjectMapper objectMapper;
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final Random random = new Random();
-    private final String[] sensorTypes = {"temperature", "pressure", "humidity"};
-    private final String[] locations = {"room-a", "room-b", "room-c", "room-d"};
+    private final String[] sensorTypes = {"temperature", "pressure", "humidity", "air_quality", "light", "noise"};
+    private final String[] locations = {"room-a", "room-b", "room-c", "room-d", "lobby", "conference-room", "kitchen", "server-room"};
 
     @Bean
     public ApplicationRunner startProducer() {
@@ -167,45 +167,356 @@ public class FileProducerService {
     private void startRandomDataProduction() {
         new Thread(() -> {
             try {
-                LOG.info("Starting random data production mode");
+                LOG.info("Starting comprehensive random data production mode");
+                LOG.info("Each room will have all sensor types: temperature, pressure, humidity, air_quality, light, noise");
+                LOG.info("Generating realistic sensor data with patterns and correlations");
 
                 long intervalMs = 1000L / ratePerSec;
                 long messageCount = 0;
 
                 while (running.get()) {
                     try {
-                        String sensorData = generateRandomSensorData();
-                        String key = generateKey(sensorData);
-                        ProducerRecord<String, String> record = new ProducerRecord<>(inputTopic, key, sensorData);
+                        // Generate comprehensive sensor data (all sensor types for all rooms)
+                        String[] allSensorData = generateComprehensiveSensorData();
 
-                        kafkaProducer.send(record, (metadata, exception) -> {
-                            if (exception != null) {
-                                LOG.error("Failed to send message to Kafka: {}", sensorData, exception);
-                            } else {
-                                LOG.debug("Message sent successfully to partition: {} offset: {}",
-                                        metadata.partition(), metadata.offset());
-                            }
-                        });
+                        for (String sensorData : allSensorData) {
+                            String key = generateKey(sensorData);
+                            ProducerRecord<String, String> record = new ProducerRecord<>(inputTopic, key, sensorData);
 
-                        messageCount++;
+                            kafkaProducer.send(record, (metadata, exception) -> {
+                                if (exception != null) {
+                                    LOG.error("Failed to send message to Kafka: {}", sensorData, exception);
+                                } else {
+                                    LOG.debug("Message sent successfully to partition: {} offset: {}",
+                                            metadata.partition(), metadata.offset());
+                                }
+                            });
+
+                            messageCount++;
+                        }
+
                         if (messageCount % 100 == 0) {
-                            LOG.info("Sent {} random messages to Kafka", messageCount);
+                            LOG.info("Sent {} comprehensive messages to Kafka (all sensors for all rooms)", messageCount);
+                            logDataGenerationStats(messageCount);
                         }
 
                         Thread.sleep(intervalMs);
 
                     } catch (Exception e) {
-                        LOG.error("Error generating random sensor data", e);
+                        LOG.error("Error generating comprehensive sensor data", e);
                         Thread.sleep(1000);
                     }
                 }
 
-                LOG.info("Random data production completed. Total messages sent: {}", messageCount);
+                LOG.info("Comprehensive data production completed. Total messages sent: {}", messageCount);
 
             } catch (Exception e) {
-                LOG.error("Fatal error in random data production", e);
+                LOG.error("Fatal error in comprehensive data production", e);
             }
-        }, "random-producer-thread").start();
+        }, "comprehensive-producer-thread").start();
+    }
+
+    private String[] generateComprehensiveSensorData() {
+        try {
+            String timestamp = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
+            String[] allData = new String[locations.length * sensorTypes.length]; // 8 rooms * 6 sensors = 48 messages
+            int index = 0;
+
+            // Generate data for ALL sensor types in ALL rooms
+            for (String location : locations) {
+                for (String sensorType : sensorTypes) {
+                    double measurement;
+                    String unit;
+
+                    switch (sensorType) {
+                        case "temperature":
+                            measurement = generateRealisticTemperature(location);
+                            unit = "Celsius";
+                            break;
+                        case "pressure":
+                            measurement = generateRealisticPressure();
+                            unit = "hPa";
+                            break;
+                        case "humidity":
+                            measurement = generateRealisticHumidity(location);
+                            unit = "percent";
+                            break;
+                        case "air_quality":
+                            measurement = generateRealisticAirQuality(location);
+                            unit = "AQI";
+                            break;
+                        case "light":
+                            measurement = generateRealisticLight(location);
+                            unit = "lux";
+                            break;
+                        case "noise":
+                            measurement = generateRealisticNoise(location);
+                            unit = "dB";
+                            break;
+                        default:
+                            measurement = random.nextDouble() * 100;
+                            unit = "units";
+                    }
+
+                    // Round to 1 decimal place
+                    measurement = Math.round(measurement * 10.0) / 10.0;
+
+                    // Validate measurement before creating JSON
+                    if (!isValidMeasurement(sensorType, measurement)) {
+                        LOG.warn("Invalid measurement for sensor type {}: {}. Skipping.", sensorType, measurement);
+                        continue;
+                    }
+
+                    // Create JSON object for this sensor in this room
+                    var jsonObject = objectMapper.createObjectNode();
+                    jsonObject.put("sensor", sensorType);
+                    jsonObject.put("measurement", measurement);
+                    jsonObject.put("measurement_unit", unit);
+                    jsonObject.put("datetime", timestamp);
+                    jsonObject.put("location", location);
+                    jsonObject.put("data_quality", calculateDataQuality(sensorType, measurement, location));
+
+                    allData[index++] = objectMapper.writeValueAsString(jsonObject);
+                }
+            }
+
+            return allData;
+
+        } catch (Exception e) {
+            LOG.error("Error creating comprehensive sensor data", e);
+            return new String[]{"{\"error\":\"Failed to generate comprehensive data\"}"};
+        }
+    }
+
+    private double generateRealisticTemperature(String location) {
+        // Base temperature ranges by location type
+        double baseTemp;
+        double variation;
+
+        switch (location) {
+            case "server-room":
+                baseTemp = 22.0; // Cooler for servers
+                variation = 3.0;
+                break;
+            case "kitchen":
+                baseTemp = 26.0; // Warmer from cooking
+                variation = 8.0;
+                break;
+            case "lobby":
+                baseTemp = 21.0; // Standard office temperature
+                variation = 4.0;
+                break;
+            case "conference-room":
+                baseTemp = 23.0; // Slightly warmer with people
+                variation = 5.0;
+                break;
+            default: // regular rooms
+                baseTemp = 22.0;
+                variation = 6.0;
+        }
+
+        // Add some realistic fluctuation
+        return baseTemp + (random.nextGaussian() * variation);
+    }
+
+    private double generateRealisticPressure() {
+        // Standard atmospheric pressure with realistic variation
+        return 1013.25 + (random.nextGaussian() * 15.0); // 985-1040 hPa range
+    }
+
+    private double generateRealisticHumidity(String location) {
+        double baseHumidity;
+        double variation;
+
+        switch (location) {
+            case "kitchen":
+                baseHumidity = 65.0; // Higher from cooking/washing
+                variation = 15.0;
+                break;
+            case "server-room":
+                baseHumidity = 40.0; // Lower, controlled environment
+                variation = 8.0;
+                break;
+            default:
+                baseHumidity = 50.0; // Standard office humidity
+                variation = 12.0;
+        }
+
+        double humidity = baseHumidity + (random.nextGaussian() * variation);
+        return Math.max(20.0, Math.min(90.0, humidity)); // Clamp to realistic range
+    }
+
+    private double generateRealisticAirQuality(String location) {
+        double baseAQI;
+        double variation;
+
+        switch (location) {
+            case "kitchen":
+                baseAQI = 80.0; // Higher from cooking
+                variation = 25.0;
+                break;
+            case "server-room":
+                baseAQI = 35.0; // Lower, filtered air
+                variation = 10.0;
+                break;
+            case "lobby":
+                baseAQI = 60.0; // Moderate, external air influence
+                variation = 20.0;
+                break;
+            default:
+                baseAQI = 45.0; // Good indoor air quality
+                variation = 15.0;
+        }
+
+        double aqi = baseAQI + (random.nextGaussian() * variation);
+        return Math.max(0.0, Math.min(200.0, aqi)); // 0-200 AQI scale
+    }
+
+    private double generateRealisticLight(String location) {
+        double baseLux;
+        double variation;
+
+        switch (location) {
+            case "server-room":
+                baseLux = 200.0; // Lower lighting
+                variation = 50.0;
+                break;
+            case "conference-room":
+                baseLux = 500.0; // Good meeting lighting
+                variation = 100.0;
+                break;
+            case "lobby":
+                baseLux = 300.0; // Ambient lighting
+                variation = 80.0;
+                break;
+            case "kitchen":
+                baseLux = 400.0; // Task lighting
+                variation = 120.0;
+                break;
+            default:
+                baseLux = 350.0; // Standard office lighting
+                variation = 90.0;
+        }
+
+        double lux = baseLux + (random.nextGaussian() * variation);
+        return Math.max(50.0, Math.min(1000.0, lux)); // Realistic indoor range
+    }
+
+    private double generateRealisticNoise(String location) {
+        double baseDecibels;
+        double variation;
+
+        switch (location) {
+            case "server-room":
+                baseDecibels = 55.0; // Fan noise
+                variation = 8.0;
+                break;
+            case "kitchen":
+                baseDecibels = 60.0; // Equipment and activity
+                variation = 12.0;
+                break;
+            case "lobby":
+                baseDecibels = 50.0; // People talking, foot traffic
+                variation = 10.0;
+                break;
+            case "conference-room":
+                baseDecibels = 45.0; // Quieter for meetings
+                variation = 15.0; // Can get loud during meetings
+                break;
+            default:
+                baseDecibels = 40.0; // Quiet office environment
+                variation = 8.0;
+        }
+
+        double noise = baseDecibels + (random.nextGaussian() * variation);
+        return Math.max(30.0, Math.min(80.0, noise)); // Realistic indoor range
+    }
+
+    private boolean isValidMeasurement(String sensorType, double measurement) {
+        switch (sensorType) {
+            case "temperature":
+                return measurement >= -10.0 && measurement <= 60.0; // Reasonable indoor range
+            case "pressure":
+                return measurement >= 950.0 && measurement <= 1080.0; // Atmospheric pressure range
+            case "humidity":
+                return measurement >= 0.0 && measurement <= 100.0; // Percentage range
+            case "air_quality":
+                return measurement >= 0.0 && measurement <= 500.0; // AQI scale
+            case "light":
+                return measurement >= 0.0 && measurement <= 2000.0; // Lux range
+            case "noise":
+                return measurement >= 20.0 && measurement <= 120.0; // Decibel range
+            default:
+                return measurement >= 0.0 && measurement <= 1000.0; // Generic range
+        }
+    }
+
+    private String calculateDataQuality(String sensorType, double measurement, String location) {
+        // Calculate quality score based on expected ranges for location/sensor combination
+        double qualityScore = 1.0; // Start with perfect quality
+
+        switch (sensorType) {
+            case "temperature":
+                // Adjust quality based on how far from expected range
+                double expectedTemp = getExpectedTemperature(location);
+                double tempDeviation = Math.abs(measurement - expectedTemp);
+                if (tempDeviation > 10.0) qualityScore *= 0.7;
+                else if (tempDeviation > 5.0) qualityScore *= 0.9;
+                break;
+            case "humidity":
+                if (measurement < 20.0 || measurement > 80.0) qualityScore *= 0.8;
+                break;
+            case "air_quality":
+                if (measurement > 150.0) qualityScore *= 0.6; // Poor air quality
+                else if (measurement > 100.0) qualityScore *= 0.8;
+                break;
+            case "noise":
+                if (measurement > 70.0) qualityScore *= 0.7; // High noise
+                break;
+        }
+
+        // Add small random variation to simulate real sensor quality variations
+        qualityScore += (random.nextGaussian() * 0.05);
+        qualityScore = Math.max(0.5, Math.min(1.0, qualityScore)); // Clamp between 0.5 and 1.0
+
+        if (qualityScore >= 0.95) return "excellent";
+        else if (qualityScore >= 0.85) return "good";
+        else if (qualityScore >= 0.75) return "fair";
+        else return "poor";
+    }
+
+    private double getExpectedTemperature(String location) {
+        switch (location) {
+            case "server-room": return 22.0;
+            case "kitchen": return 26.0;
+            case "lobby": return 21.0;
+            case "conference-room": return 23.0;
+            default: return 22.0;
+        }
+    }
+
+    private void logDataGenerationStats(long messageCount) {
+        try {
+            LOG.info("=== Data Generation Statistics ===");
+            LOG.info("Total messages sent: {}", messageCount);
+            LOG.info("Locations generating data: {}", String.join(", ", locations));
+            LOG.info("Sensor types generating data: {}", String.join(", ", sensorTypes));
+            LOG.info("Messages per cycle: {} (locations: {} × sensors: {})",
+                locations.length * sensorTypes.length, locations.length, sensorTypes.length);
+            LOG.info("Rate: {} messages/second", ratePerSec);
+
+            // Log expected data characteristics
+            LOG.info("Expected sensor ranges:");
+            LOG.info("  Temperature: 15-50°C (varies by location)");
+            LOG.info("  Pressure: 985-1040 hPa");
+            LOG.info("  Humidity: 20-90% (varies by location)");
+            LOG.info("  Air Quality: 0-200 AQI (varies by location)");
+            LOG.info("  Light: 50-1000 lux (varies by location)");
+            LOG.info("  Noise: 30-80 dB (varies by location)");
+            LOG.info("=====================================");
+        } catch (Exception e) {
+            LOG.warn("Error logging statistics", e);
+        }
     }
 
     private String generateRandomSensorData() {

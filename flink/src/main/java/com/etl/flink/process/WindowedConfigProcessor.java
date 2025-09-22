@@ -185,25 +185,30 @@ public class WindowedConfigProcessor extends RichCoFlatMapFunction<EtlConfig, Se
         result.setResult(getFieldValue(event, field));
         result.setProcessedAt(Instant.now());
 
+        // Add sensor context information for better output understanding
+        result.setSensorType(event.getSensor());
+        result.setMeasurementUnit(event.getMeasurementUnit());
+        result.setLocation(event.getLocation());
+
         // Set window boundaries
         result.setWindowStart(Instant.ofEpochMilli(windowStart));
         result.setWindowEnd(Instant.ofEpochMilli(windowEnd));
 
         diagnostics.add("Applied " + transformation.getType() + " aggregation with " + windowStr + " window");
         diagnostics.add("Window: " + result.getWindowStart() + " to " + result.getWindowEnd());
+        diagnostics.add("Contributing sensor: " + event.getSensor() + " (" + event.getMeasurementUnit() + ")");
+        diagnostics.add("From location: " + event.getLocation());
         result.setDiagnostics(new ArrayList<>(diagnostics));
 
         out.collect(result);
     }
 
     private boolean isElementTransformation(String type) {
-        return "normalize_string".equals(type) || "lowercase".equals(type) || "uppercase".equals(type) ||
-               "filter_greater".equals(type) || "filter_less".equals(type) ||
-               "extract_year".equals(type) || "extract_month".equals(type) || "extract_day".equals(type);
+        return "filter_greater".equals(type) || "filter_less".equals(type);
     }
 
     private boolean isAggregationTransformation(String type) {
-        return "sum".equals(type) || "max".equals(type) || "min".equals(type);
+        return "sum".equals(type) || "max".equals(type) || "min".equals(type) || "avg".equals(type);
     }
 
     private SensorEvent applyElementTransformation(SensorEvent event, Transformation transformation,
@@ -241,6 +246,14 @@ public class WindowedConfigProcessor extends RichCoFlatMapFunction<EtlConfig, Se
                 return event.getMeasurementUnit() != null ? event.getMeasurementUnit() : "unknown";
             case "jobId":
                 return event.getJobId() != null ? event.getJobId() : "unknown";
+            case "location":
+                return event.getLocation() != null ? event.getLocation() : "unknown";
+            case "data_quality":
+                return event.getDataQuality() != null ? event.getDataQuality() : "unknown";
+            case "measurement":
+                return event.getMeasurement() != null ? String.valueOf(event.getMeasurement()) : "unknown";
+            case "datetime":
+                return event.getDatetime() != null ? event.getDatetime().toString() : "unknown";
             default:
                 return "unknown";
         }
@@ -256,6 +269,12 @@ public class WindowedConfigProcessor extends RichCoFlatMapFunction<EtlConfig, Se
                 return event.getMeasurementUnit();
             case "jobId":
                 return event.getJobId();
+            case "location":
+                return event.getLocation();
+            case "data_quality":
+                return event.getDataQuality();
+            case "datetime":
+                return event.getDatetime();
             default:
                 return null;
         }
@@ -293,6 +312,11 @@ public class WindowedConfigProcessor extends RichCoFlatMapFunction<EtlConfig, Se
         result.setResult(event);
         result.setProcessedAt(Instant.now());
 
+        // Add sensor context information
+        result.setSensorType(event.getSensor());
+        result.setMeasurementUnit(event.getMeasurementUnit());
+        result.setLocation(event.getLocation());
+
         diagnostics.add("No transformations applied, returning original event");
         result.setDiagnostics(diagnostics);
 
@@ -310,6 +334,11 @@ public class WindowedConfigProcessor extends RichCoFlatMapFunction<EtlConfig, Se
         result.setResult(event);
         result.setProcessedAt(Instant.now());
 
+        // Add sensor context information
+        result.setSensorType(event.getSensor());
+        result.setMeasurementUnit(event.getMeasurementUnit());
+        result.setLocation(event.getLocation());
+
         if (!diagnostics.isEmpty()) {
             result.setDiagnostics(new ArrayList<>(diagnostics));
         }
@@ -326,6 +355,11 @@ public class WindowedConfigProcessor extends RichCoFlatMapFunction<EtlConfig, Se
         errorResult.setGroupingKey(event.getSensor());
         errorResult.setResult(null);
         errorResult.setProcessedAt(Instant.now());
+
+        // Add sensor context information for error tracking
+        errorResult.setSensorType(event.getSensor());
+        errorResult.setMeasurementUnit(event.getMeasurementUnit());
+        errorResult.setLocation(event.getLocation());
 
         List<String> diagnostics = new ArrayList<>();
         diagnostics.add("Processing error: " + e.getMessage());

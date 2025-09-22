@@ -26,15 +26,23 @@ public class SensorEvent {
     @JsonProperty("location")
     private String location;
 
+    @JsonProperty("data_quality")
+    private String dataQuality;
+
     public SensorEvent() {}
 
     public SensorEvent(String jobId, String sensor, Double measurement, String measurementUnit, Instant datetime, String location) {
+        this(jobId, sensor, measurement, measurementUnit, datetime, location, null);
+    }
+
+    public SensorEvent(String jobId, String sensor, Double measurement, String measurementUnit, Instant datetime, String location, String dataQuality) {
         this.jobId = jobId;
         this.sensor = sensor;
         this.measurement = measurement;
         this.measurementUnit = measurementUnit;
         this.datetime = datetime;
         this.location = location;
+        this.dataQuality = dataQuality;
     }
 
     // Legacy constructor for backward compatibility
@@ -90,6 +98,14 @@ public class SensorEvent {
         this.location = location;
     }
 
+    public String getDataQuality() {
+        return dataQuality;
+    }
+
+    public void setDataQuality(String dataQuality) {
+        this.dataQuality = dataQuality;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -100,12 +116,13 @@ public class SensorEvent {
                 Objects.equals(measurement, that.measurement) &&
                 Objects.equals(measurementUnit, that.measurementUnit) &&
                 Objects.equals(datetime, that.datetime) &&
-                Objects.equals(location, that.location);
+                Objects.equals(location, that.location) &&
+                Objects.equals(dataQuality, that.dataQuality);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(jobId, sensor, measurement, measurementUnit, datetime, location);
+        return Objects.hash(jobId, sensor, measurement, measurementUnit, datetime, location, dataQuality);
     }
 
     @Override
@@ -117,6 +134,7 @@ public class SensorEvent {
                 ", measurementUnit='" + measurementUnit + '\'' +
                 ", datetime=" + datetime +
                 ", location='" + location + '\'' +
+                ", dataQuality='" + dataQuality + '\'' +
                 '}';
     }
 }

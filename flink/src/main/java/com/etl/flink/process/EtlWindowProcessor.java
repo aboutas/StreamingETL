@@ -72,7 +72,7 @@ public class EtlWindowProcessor {
     }
 
     private static boolean isAggregationTransformation(String type) {
-        return "sum".equals(type) || "max".equals(type) || "min".equals(type);
+        return "sum".equals(type) || "max".equals(type) || "min".equals(type) || "avg".equals(type);
     }
 
     private static DataStream<SensorEvent> applyElementTransformation(
