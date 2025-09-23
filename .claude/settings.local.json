@@ -31,7 +31,8 @@
       "Bash(python:*)",
       "Bash(mvn:*)",
       "Read(//c/Users/tboutas/MyProjects/**)",
-      "Bash(for:*)"
+      "Bash(for:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []
