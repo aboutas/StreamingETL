@@ -3,9 +3,8 @@ package com.etl.flink;
 import com.etl.flink.model.EtlConfig;
 import com.etl.flink.model.EtlResult;
 import com.etl.flink.model.SensorEvent;
-import com.etl.flink.process.EtlCoFlatMapFunction;
-import com.etl.flink.process.EtlWindowProcessor;
-import com.etl.flink.process.WindowedConfigProcessor;
+import com.etl.flink.process.CoFlatMapProcessor;
+import com.etl.flink.process.ConfigKeyExtractor;
 import com.etl.flink.sink.MongoSink;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -19,8 +18,6 @@ import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
-import org.apache.flink.streaming.api.windowing.time.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,6 +36,9 @@ public class EtlFlinkJob {
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.enableCheckpointing(30000);
+
+        // Set global parallelism to 4 for testing
+        env.setParallelism(4);
 
         String kafkaBootstrapServers = getEnvOrDefault("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092");
         String configTopic = getEnvOrDefault("CONFIG_TOPIC", "etl.config.v1");
@@ -71,12 +71,14 @@ public class EtlFlinkJob {
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
 
+        // Create configuration stream - keyed by same field as data stream for TRUE CoFlatMap
         DataStream<EtlConfig> configStream = env
                 .fromSource(configSource, WatermarkStrategy.noWatermarks(), "Config Source")
                 .map(new ConfigDeserializer())
                 .filter(config -> config != null)
-                .keyBy(config -> "universal"); // Use universal key for all configs
+                .keyBy(new ConfigKeyExtractor()); // Key configs by their target keyBy field
 
+        // Create keyed event stream - enables parallel processing by sensor field
         DataStream<SensorEvent> eventStream = env
                 .fromSource(dataSource,
                         WatermarkStrategy.<String>forBoundedOutOfOrderness(Duration.ofSeconds(5))
@@ -94,12 +96,12 @@ public class EtlFlinkJob {
                         "Data Source")
                 .map(new EventDeserializer())
                 .filter(event -> event != null)
-                .keyBy(event -> "universal"); // Use universal key for all data
+                .keyBy(event -> event.getSensor()); // Key by sensor - matches config routing
 
-        // New approach: Use WindowedConfigProcessor to dynamically create windowed streams
+        // TRUE CoFlatMap: Both streams keyed by same field for optimal distribution
         DataStream<EtlResult> processedStream = configStream
                 .connect(eventStream)
-                .flatMap(new WindowedConfigProcessor());
+                .flatMap(new CoFlatMapProcessor());
 
         processedStream.addSink(new MongoSink(mongoUri));
 

@@ -5,12 +5,8 @@ import com.etl.flink.model.EtlResult;
 import com.etl.flink.model.SensorEvent;
 import com.etl.flink.model.Transformation;
 import com.etl.flink.udf.ElementTransformations;
-import com.etl.flink.udf.WindowedAggregations;
-import com.etl.flink.udf.WindowedAggregations.WindowedSensorEvent;
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
-import org.apache.flink.api.common.state.ValueState;
-import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
 import org.apache.flink.util.Collector;
@@ -19,87 +15,55 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Processes configurations and events using proper windowing for aggregations
+ * TRUE CoFlatMap implementation with true parallelism.
+ * Both config and data streams keyed by same field for optimal distribution.
  */
-public class WindowedConfigProcessor extends RichCoFlatMapFunction<EtlConfig, SensorEvent, EtlResult> {
-    private static final Logger LOG = LoggerFactory.getLogger(WindowedConfigProcessor.class);
+public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorEvent, EtlResult> {
+    private static final Logger LOG = LoggerFactory.getLogger(CoFlatMapProcessor.class);
 
     private transient MapState<String, EtlConfig> configState;
-    private transient ValueState<String> activeConfigsState;
 
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
         configState = getRuntimeContext().getMapState(
-                new MapStateDescriptor<>("configs", String.class, EtlConfig.class)
-        );
-        activeConfigsState = getRuntimeContext().getState(
-                new ValueStateDescriptor<>("activeConfigs", String.class)
+                new MapStateDescriptor<>("configs-by-key", String.class, EtlConfig.class)
         );
     }
 
     @Override
     public void flatMap1(EtlConfig config, Collector<EtlResult> out) throws Exception {
-        LOG.info("Received config for job: {}", config.getJobId());
+        LOG.info("Received config for job: {} on subtask: {}",
+                config.getJobId(), getRuntimeContext().getIndexOfThisSubtask());
 
-        // Check if this config is already running
-        EtlConfig existingConfig = configState.get(config.getJobId());
-        String activeConfigs = activeConfigsState.value();
-
-        boolean isConfigActive = activeConfigs != null && activeConfigs.contains(config.getJobId());
-
-        // If config is already active, reject the duplicate submission
-        if (existingConfig != null && isConfigActive) {
-            LOG.warn("Config for job {} is already active. Rejecting duplicate submission.", config.getJobId());
-            // Don't emit any result for rejected configs - just log the rejection
-            return;
-        }
-
-        // Replace existing config if it exists but is not active, or add new config
+        // Store config by jobId - only configs for THIS key group
         configState.put(config.getJobId(), config);
 
-        // Update active configs list
-        if (activeConfigs == null) {
-            activeConfigs = config.getJobId();
-        } else if (!activeConfigs.contains(config.getJobId())) {
-            activeConfigs = activeConfigs + "," + config.getJobId();
-        }
-        activeConfigsState.update(activeConfigs);
+        // Emit configuration status result
+        EtlResult configResult = new EtlResult();
+        configResult.setJobId(config.getJobId());
+        configResult.setSource(config.getSource());
+        configResult.setTransformations(config.getTransformations());
+        configResult.setResult("Configuration registered successfully on subtask " +
+                              getRuntimeContext().getIndexOfThisSubtask());
+        configResult.setProcessedAt(Instant.now());
 
-        // Just log the configuration registration - don't emit metadata to MongoDB
-        LOG.info("Config registered for jobId: {}", config.getJobId());
+        List<String> diagnostics = new ArrayList<>();
+        diagnostics.add("Config registered for jobId: " + config.getJobId());
+        diagnostics.add("Processed on subtask: " + getRuntimeContext().getIndexOfThisSubtask());
+        diagnostics.add("Key group: " + getRuntimeContext().getIndexOfThisSubtask());
+        configResult.setDiagnostics(diagnostics);
 
-        // Log currently active configurations
-        try {
-            List<String> activeIds = getActiveConfigIds();
-            LOG.info("Currently active configs: {}", activeIds.toString());
-        } catch (Exception e) {
-            LOG.warn("Failed to retrieve active config list", e);
-        }
-
-        // Log transformation analysis
-        if (config.getTransformations() != null) {
-            for (Transformation t : config.getTransformations()) {
-                if (isAggregationTransformation(t.getType())) {
-                    String window = t.getWindow() != null ? t.getWindow() : "1s";
-                    LOG.info("Windowed {} aggregation configured with {} window for jobId: {}",
-                            t.getType(), window, config.getJobId());
-                } else if (isElementTransformation(t.getType())) {
-                    LOG.info("Element transformation {} configured for jobId: {}",
-                            t.getType(), config.getJobId());
-                }
-            }
-        }
+        out.collect(configResult);
     }
 
     @Override
     public void flatMap2(SensorEvent event, Collector<EtlResult> out) throws Exception {
-        // Process this universal data event against ALL stored configs
+        // Process this event against configs stored in THIS subtask's key group
         Iterable<Map.Entry<String, EtlConfig>> configs = configState.entries();
 
         boolean hasConfigs = false;
@@ -108,21 +72,27 @@ public class WindowedConfigProcessor extends RichCoFlatMapFunction<EtlConfig, Se
             EtlConfig config = configEntry.getValue();
 
             try {
-                LOG.debug("Processing event with sensor: {} against config: {}", event.getSensor(), config.getJobId());
+                LOG.debug("Processing event with sensor: {} against config: {} on subtask: {}",
+                         event.getSensor(), config.getJobId(), getRuntimeContext().getIndexOfThisSubtask());
                 processEventWithConfig(event, config, out);
             } catch (Exception e) {
-                LOG.error("Error processing event with config for jobId: {}", config.getJobId(), e);
+                LOG.error("Error processing event with config for jobId: {} on subtask: {}",
+                         config.getJobId(), getRuntimeContext().getIndexOfThisSubtask(), e);
                 emitErrorResult(event, config, e, out);
             }
         }
 
         if (!hasConfigs) {
-            LOG.debug("No configs available, dropping event with sensor: {}", event.getSensor());
+            LOG.debug("No configs available on subtask: {}, dropping event with sensor: {}",
+                     getRuntimeContext().getIndexOfThisSubtask(), event.getSensor());
         }
     }
 
     private void processEventWithConfig(SensorEvent event, EtlConfig config, Collector<EtlResult> out) throws Exception {
         List<String> diagnostics = new ArrayList<>();
+        diagnostics.add("Processed on subtask: " + getRuntimeContext().getIndexOfThisSubtask());
+        diagnostics.add("Key group processing: " + getRuntimeContext().getIndexOfThisSubtask());
+
         SensorEvent currentEvent = event;
 
         if (config.getTransformations() == null || config.getTransformations().isEmpty()) {
@@ -143,8 +113,6 @@ public class WindowedConfigProcessor extends RichCoFlatMapFunction<EtlConfig, Se
         // Process aggregation transformations
         for (Transformation transformation : config.getTransformations()) {
             if (isAggregationTransformation(transformation.getType())) {
-                // For aggregations, we simulate windowing by creating synthetic windows
-                // In a real windowed implementation, this would be handled by Flink's windowing
                 processWindowedAggregation(currentEvent, transformation, config, diagnostics, out);
             }
         }
@@ -185,7 +153,7 @@ public class WindowedConfigProcessor extends RichCoFlatMapFunction<EtlConfig, Se
         result.setResult(getFieldValue(event, field));
         result.setProcessedAt(Instant.now());
 
-        // Add sensor context information for better output understanding
+        // Add sensor context information
         result.setSensorType(event.getSensor());
         result.setMeasurementUnit(event.getMeasurementUnit());
         result.setLocation(event.getLocation());
@@ -362,54 +330,9 @@ public class WindowedConfigProcessor extends RichCoFlatMapFunction<EtlConfig, Se
         errorResult.setLocation(event.getLocation());
 
         List<String> diagnostics = new ArrayList<>();
-        diagnostics.add("Processing error: " + e.getMessage());
+        diagnostics.add("Processing error on subtask " + getRuntimeContext().getIndexOfThisSubtask() + ": " + e.getMessage());
         errorResult.setDiagnostics(diagnostics);
 
         out.collect(errorResult);
-    }
-
-    /**
-     * Removes a config from active state - can be called when config processing should end
-     */
-    private void deactivateConfig(String jobId) throws Exception {
-        String activeConfigs = activeConfigsState.value();
-        if (activeConfigs != null && activeConfigs.contains(jobId)) {
-            String[] configList = activeConfigs.split(",");
-            StringBuilder newActiveConfigs = new StringBuilder();
-
-            for (String configId : configList) {
-                if (!configId.trim().equals(jobId)) {
-                    if (newActiveConfigs.length() > 0) {
-                        newActiveConfigs.append(",");
-                    }
-                    newActiveConfigs.append(configId.trim());
-                }
-            }
-
-            if (newActiveConfigs.length() == 0) {
-                activeConfigsState.clear();
-                LOG.info("All configs deactivated, cleared active state");
-            } else {
-                activeConfigsState.update(newActiveConfigs.toString());
-                LOG.info("Deactivated config: {}, remaining active: {}", jobId, newActiveConfigs.toString());
-            }
-        }
-    }
-
-    /**
-     * Get list of currently active config job IDs
-     */
-    private List<String> getActiveConfigIds() throws Exception {
-        String activeConfigs = activeConfigsState.value();
-        List<String> activeIds = new ArrayList<>();
-
-        if (activeConfigs != null && !activeConfigs.trim().isEmpty()) {
-            String[] configList = activeConfigs.split(",");
-            for (String configId : configList) {
-                activeIds.add(configId.trim());
-            }
-        }
-
-        return activeIds;
     }
 }
