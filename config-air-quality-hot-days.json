@@ -1,19 +1,22 @@
 {
-  "jobId": "temperature-monitoring-job",
+  "jobId": "air-quality-hot-days",
   "source": "kafka://etl.input.v1",
   "transformations": [
     {
       "type": "filter_greater",
       "params": {
+        "sensor": "temperature",
         "field": "measurement",
         "threshold": 25.0
       }
     },
     {
       "type": "max",
-      "keyBy": "sensor",
-      "window": "5s"
+      "keyBy": "location",
+      "params": {
+        "field": "measurement",
+        "sensor": "air_quality"
+      }
     }
-  ],
-  "outputTopic": "etl.output.v1"
+  ]
 }

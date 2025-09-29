@@ -1,0 +1,119 @@
+ETL FLINK PERFORMANCE TEST SUITE - COMPLETE GUIDE
+Import to Excel and apply colors: GREEN=CONSTANT YELLOW=VARIABLE BLUE=Headers
+
+TEST 1: SCALABILITY (PARALLELISM IMPACT)
+Objective: Find optimal parallelism level for current system load
+
+Parameter Type,Parameter Name,Test 1 Baseline,Test 2 Low Scale,Test 3 Current,Test 4 Medium Scale,Test 5 High Scale,Notes
+CONSTANT,Input Rate (msg/sec),10,10,10,10,10,Keep producer rate stable (480 Flink records/sec)
+CONSTANT,Window Size (seconds),3,3,3,3,3,Standard tumbling windows (1440 records per window)
+CONSTANT,Active Configurations,4,4,4,4,4,test123 + air-quality + light + cold-humid
+CONSTANT,TaskManager Memory (GB),1,1,1,1,1,Fixed memory allocation
+CONSTANT,Checkpointing Interval,30s,30s,30s,30s,30s,EXACTLY_ONCE mode
+VARIABLE,Parallelism Level,1,2,4,8,16,CHANGE IN CODE
+VARIABLE,TaskManager Slots,1,2,4,4,4,CHANGE IN CONFIG FILE
+VARIABLE,Number of TaskManagers,1,1,1,2,4,CHANGE INFRASTRUCTURE
+
+MANUAL FILE CHANGES REQUIRED,Test 1,Test 2,Test 3,Test 4,Test 5,Location
+File: EtlFlinkJob.java,env.setParallelism(1),env.setParallelism(2),env.setParallelism(4),env.setParallelism(8),env.setParallelism(16),Line ~44
+File: docker-compose.yml,numberOfTaskSlots: 1,numberOfTaskSlots: 2,numberOfTaskSlots: 4,numberOfTaskSlots: 4,numberOfTaskSlots: 4,Line ~35
+Infrastructure: TaskManager Containers,1 container,1 container,1 container,ADD 2nd container,ADD 4 containers total,docker-compose.yml
+
+Expected Results,Test 1,Test 2,Test 3,Test 4,Test 5,Fill in actual results
+Throughput (records/min),40,60-80,120-160,160-200,160-180,YOUR MEASUREMENT
+Latency (ms),1000-3000,800-2000,500-1500,300-1000,300-800,YOUR MEASUREMENT
+Memory Usage (MB),200-300,300-400,400-600,600-800,800-1200,YOUR MEASUREMENT
+CPU Utilization (%),10-20,20-40,40-60,60-80,70-90,YOUR MEASUREMENT
+
+TEST EXECUTION STEPS,,,,,
+1. Change Code,Modify EtlFlinkJob.java Line 44,,,,,
+2. Change Config,Modify docker-compose.yml Line 35,,,,,
+3. Rebuild,mvn clean package -DskipTests,,,,,
+4. Restart System,docker-compose up -d,,,,,
+5. Start Job,flink run -c com.etl.flink.EtlFlinkJob usrlib/etl-flink-1.0.0.jar,,,,,
+6. Submit Config,curl -X POST http://localhost:8080/config -d @config-test123.json,,,,,
+7. Measure 10 minutes,docker logs taskmanager | grep "ETL Results" | wc -l,,,,,
+
+
+TEST 2: THROUGHPUT (INPUT LOAD IMPACT)
+Objective: Determine maximum system capacity and bottleneck points
+
+Parameter Type,Parameter Name,Test 1 Minimal,Test 2 Light,Test 3 Medium,Test 4 Heavy,Test 5 Stress,Test 6 Max
+CONSTANT,Parallelism,4,4,4,4,4,4
+CONSTANT,TaskManager Slots,4,4,4,4,4,4
+CONSTANT,Window Size (seconds),3,3,3,3,3,3
+CONSTANT,Number of TaskManagers,1,1,1,1,1,1
+CONSTANT,Active Configurations,4,4,4,4,4,4
+CONSTANT,Memory per TaskManager (GB),1,1,1,1,1,1
+VARIABLE,Input Rate (msg/sec),1,5,10,25,50,100
+VARIABLE,Flink Records/sec,48,240,480,1200,2400,4800
+
+MANUAL FILE CHANGES REQUIRED,Test 1,Test 2,Test 3,Test 4,Test 5,Test 6
+Producer Rate Change,RATE_PER_SEC=1,RATE_PER_SEC=5,RATE_PER_SEC=10,RATE_PER_SEC=25,RATE_PER_SEC=50,RATE_PER_SEC=100
+Method,Environment variable or restart producer container,,,,,
+
+Records per 3s Window,144,720,1440,3600,7200,14400
+Expected Throughput (records/min),2880,14400,28800,72000,144000,288000
+Expected Latency (ms),500-1500,800-2000,1000-3000,1500-4000,2000-6000,3000+
+Expected Memory (MB),200-300,300-400,400-500,500-700,600-800,700-900
+Expected CPU (%),10-20,20-40,40-60,60-80,70-90,85-95
+System Status,Baseline,Normal,Good,Stressed,Critical,At Limit
+
+TEST EXECUTION STEPS,,,,,
+1. Change Producer Rate,RATE_PER_SEC=X docker-compose up -d etl-file-producer,,,,,
+2. Wait 2 minutes,Let system stabilize,,,,,
+3. Measure 10 minutes,Count ETL Results + Monitor docker stats,,,,,
+4. Record Results,Throughput + Latency + Memory + CPU,,,,,
+
+
+TEST 3: WINDOW PERFORMANCE (WINDOW SIZE IMPACT)
+Objective: Optimize latency vs accuracy trade-off for different use cases
+
+Parameter Type,Parameter Name,Test 1 Ultra-Fast,Test 2 Current,Test 3 Medium,Test 4 Long,Test 5 Extended,Notes
+CONSTANT,Input Rate (msg/sec),10,10,10,10,10,Moderate load level (480 Flink records/sec)
+CONSTANT,Parallelism,4,4,4,4,4,Optimal configuration
+CONSTANT,TaskManager Slots,4,4,4,4,4,Fixed slots
+CONSTANT,Number of TaskManagers,1,1,1,1,1,Single node
+CONSTANT,Active Configurations,4,4,4,4,4,All test configs
+CONSTANT,Memory per TaskManager (GB),1,1,1,1,1,Fixed allocation
+CONSTANT,Window Type,Tumbling,Tumbling,Tumbling,Tumbling,Tumbling,Processing time windows
+VARIABLE,Window Size (seconds),1,3,10,30,60,CHANGE IN CODE
+
+MANUAL FILE CHANGES REQUIRED,Test 1,Test 2,Test 3,Test 4,Test 5,Location
+File: EtlFlinkJob.java,Time.seconds(1),Time.seconds(3),Time.seconds(10),Time.seconds(30),Time.seconds(60),Line ~134
+
+Expected Results,Test 1,Test 2,Test 3,Test 4,Test 5,Fill in actual results
+Memory Usage (MB),50-100,100-200,200-400,400-600,600-800,YOUR MEASUREMENT
+Window Triggers per Minute,3600,1200,360,120,60,YOUR MEASUREMENT
+Results per Minute,600,200,60,20,10,YOUR MEASUREMENT
+End-to-End Latency (ms),1000-2000,3000-4000,10000-12000,30000-35000,60000-65000,YOUR MEASUREMENT
+Records per Window,480,1440,4800,14400,28800,YOUR MEASUREMENT
+Use Case,Real-time alerts,General dashboards,Trend analysis,Business reporting,Batch analysis,Application
+
+TEST EXECUTION STEPS,,,,,
+1. Change Code,Modify EtlFlinkJob.java Line 134: TumblingProcessingTimeWindows.of(Time.seconds(X)),,,,,
+2. Rebuild,mvn clean package -DskipTests,,,,,
+3. Restart Job,Cancel old job + Start new job,,,,,
+4. Submit Config,curl -X POST http://localhost:8080/config -d @config-test123.json,,,,,
+5. Measure 15 minutes,Longer measurement for larger windows,,,,,
+
+
+CRITICAL MEASUREMENT COMMANDS
+Purpose,Command,Notes
+Build Project,mvn clean package -DskipTests,After code changes
+Cancel Job,docker exec flink-jobmanager-1 flink cancel [JOB_ID],Get JOB_ID from flink list
+Start Job,docker exec flink-jobmanager-1 flink run -c com.etl.flink.EtlFlinkJob usrlib/etl-flink-1.0.0.jar,Deploy updated code
+Submit Config,curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-test123.json,Test configuration
+Count Results,timeout 600 docker logs flink-taskmanager-1 -f | grep "ETL Results" | wc -l,10 minute measurement
+Monitor Resources,docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}",System utilization
+Check Job Status,docker exec flink-jobmanager-1 flink list,Verify running
+Monitor Lag,docker exec kafka-1 kafka-consumer-groups --bootstrap-server localhost:9092 --describe --group etl-data-consumer-v2,Input processing lag
+Web UI,http://localhost:8081,Flink dashboard
+
+SUCCESS CRITERIA
+Test,Pass,Warning,Fail
+Scalability,Linear scaling to parallelism=8,Scaling stops at parallelism=4,No scaling improvement
+Throughput,Handle 25 msg/sec with <5s latency,Handle 10 msg/sec with degradation,Cannot handle 10 msg/sec
+Windowing,All window sizes work within memory predictions,Memory growth >10% above predictions,System crashes or OOM
+
+TOTAL ESTIMATED DURATION: 3.5-4.5 HOURS

@@ -20,6 +20,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Properties;
 import java.util.Random;
@@ -28,6 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Service
 public class FileProducerService {
     private static final Logger LOG = LoggerFactory.getLogger(FileProducerService.class);
+    private static final ZoneId GREEK_TIMEZONE = ZoneId.of("Europe/Athens"); // UTC+2 (UTC+3 in summer)
 
     @Value("${kafka.bootstrap.servers:kafka:9092}")
     private String kafkaBootstrapServers;
@@ -218,7 +221,7 @@ public class FileProducerService {
 
     private String[] generateComprehensiveSensorData() {
         try {
-            String timestamp = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
+            String timestamp = ZonedDateTime.now(GREEK_TIMEZONE).truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
             String[] allData = new String[locations.length * sensorTypes.length]; // 8 rooms * 6 sensors = 48 messages
             int index = 0;
 
@@ -523,7 +526,7 @@ public class FileProducerService {
         try {
             String sensorType = sensorTypes[random.nextInt(sensorTypes.length)];
             String location = locations[random.nextInt(locations.length)];
-            String timestamp = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
+            String timestamp = ZonedDateTime.now(GREEK_TIMEZONE).truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
 
             double measurement;
             String unit;

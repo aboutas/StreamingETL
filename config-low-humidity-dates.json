@@ -1,19 +1,22 @@
 {
-  "jobId": "server-environmental-job",
+  "jobId": "low-humidity-dates",
   "source": "kafka://etl.input.v1",
   "transformations": [
     {
       "type": "filter_less",
       "params": {
+        "sensor": "humidity",
         "field": "measurement",
-        "threshold": 80.0
+        "threshold": 30.0
       }
     },
     {
-      "type": "sum",
+      "type": "max",
       "keyBy": "location",
-      "window": "10s"
+      "params": {
+        "field": "datetime",
+        "sensor": "humidity"
+      }
     }
-  ],
-  "outputTopic": "etl.output.v1"
+  ]
 }

@@ -1,0 +1,22 @@
+{
+  "jobId": "light-high-humidity",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "filter_greater",
+      "params": {
+        "sensor": "humidity",
+        "field": "measurement",
+        "threshold": 60.0
+      }
+    },
+    {
+      "type": "max",
+      "keyBy": "location",
+      "params": {
+        "field": "measurement",
+        "sensor": "light"
+      }
+    }
+  ]
+}

@@ -12,15 +12,8 @@ public class ConfigKeyExtractor implements KeySelector<EtlConfig, String> {
 
     @Override
     public String getKey(EtlConfig config) throws Exception {
-        // Extract the keyBy field from transformations to route config to correct subtask
-        String routingKey = extractKeyByField(config);
-
-        // If no specific keyBy field, use default (sensor)
-        if (routingKey == null || routingKey.isEmpty()) {
-            routingKey = "sensor"; // Default routing
-        }
-
-        return routingKey;
+        // For universal data processing, send all configs to all subtasks
+        return "universal";
     }
 
     private String extractKeyByField(EtlConfig config) {

@@ -16,12 +16,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
 public class MongoSink extends RichSinkFunction<EtlResult> {
     private static final Logger LOG = LoggerFactory.getLogger(MongoSink.class);
+    private static final ZoneId GREEK_TIMEZONE = ZoneId.of("Europe/Athens"); // UTC+2 (UTC+3 in summer)
 
     private final String mongoUri;
     private transient MongoClient mongoClient;
@@ -61,7 +64,7 @@ public class MongoSink extends RichSinkFunction<EtlResult> {
         try {
             String id = generateId(result);
             result.setId(id);
-            result.setProcessedAt(Instant.now());
+            result.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
 
             // Get collection name based on jobId
             String collectionName = sanitizeCollectionName(result.getJobId());
@@ -111,9 +114,9 @@ public class MongoSink extends RichSinkFunction<EtlResult> {
                 .append("groupingKey", result.getGroupingKey())
                 .append("aggregationType", result.getAggregationType())
                 .append("field", result.getField())
-                .append("result", result.getResult())
+                .append("result", convertResultToDocument(result.getResult()))
                 .append("processedAt", result.getProcessedAt() != null ?
-                        result.getProcessedAt().toString() : Instant.now().toString());
+                        result.getProcessedAt().toString() : ZonedDateTime.now(GREEK_TIMEZONE).toInstant().toString());
 
         if (result.getWindowStart() != null) {
             doc.append("windowStart", result.getWindowStart().toString());
@@ -135,11 +138,54 @@ public class MongoSink extends RichSinkFunction<EtlResult> {
             doc.append("transformations", transformationDocs);
         }
 
+        // Add sensor context information
+        if (result.getSensorType() != null) {
+            doc.append("sensorType", result.getSensorType());
+        }
+        if (result.getMeasurementUnit() != null) {
+            doc.append("measurementUnit", result.getMeasurementUnit());
+        }
+        if (result.getLocation() != null) {
+            doc.append("location", result.getLocation());
+        }
+
         if (result.getDiagnostics() != null && !result.getDiagnostics().isEmpty()) {
             doc.append("diagnostics", result.getDiagnostics());
         }
 
         return doc;
+    }
+
+    private Object convertResultToDocument(Object resultObj) {
+        if (resultObj == null) {
+            return null;
+        }
+
+        // Handle primitive types and strings directly
+        if (resultObj instanceof String || resultObj instanceof Number || resultObj instanceof Boolean) {
+            return resultObj;
+        }
+
+        // Handle SensorEvent objects by converting to Document
+        if (resultObj instanceof com.etl.flink.model.SensorEvent) {
+            com.etl.flink.model.SensorEvent sensorEvent = (com.etl.flink.model.SensorEvent) resultObj;
+            return new Document()
+                    .append("sensor", sensorEvent.getSensor())
+                    .append("measurement", sensorEvent.getMeasurement())
+                    .append("measurementUnit", sensorEvent.getMeasurementUnit())
+                    .append("datetime", sensorEvent.getDatetime() != null ? sensorEvent.getDatetime().toString() : null)
+                    .append("location", sensorEvent.getLocation())
+                    .append("dataQuality", sensorEvent.getDataQuality())
+                    .append("jobId", sensorEvent.getJobId());
+        }
+
+        // Handle Instant objects
+        if (resultObj instanceof Instant) {
+            return ((Instant) resultObj).toString();
+        }
+
+        // For any other object type, convert to string as fallback
+        return resultObj.toString();
     }
 
     @Override

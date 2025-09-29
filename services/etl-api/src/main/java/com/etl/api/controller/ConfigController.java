@@ -10,6 +10,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -17,6 +19,7 @@ import java.util.Map;
 @RequestMapping("/")
 public class ConfigController {
     private static final Logger LOG = LoggerFactory.getLogger(ConfigController.class);
+    private static final ZoneId GREEK_TIMEZONE = ZoneId.of("Europe/Athens"); // UTC+2 (UTC+3 in summer)
 
     private final ConfigService configService;
     private final JobRegistryService jobRegistryService;
@@ -82,7 +85,7 @@ public class ConfigController {
         Map<String, Object> response = new HashMap<>();
         response.put("status", "UP");
         response.put("service", "etl-api");
-        response.put("timestamp", java.time.Instant.now());
+        response.put("timestamp", ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
         return ResponseEntity.ok(response);
     }
 

@@ -3,8 +3,12 @@ package com.etl.api.model;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 
 public class JobStatus {
+    private static final ZoneId GREEK_TIMEZONE = ZoneId.of("Europe/Athens"); // UTC+2 (UTC+3 in summer)
+
     @JsonProperty("jobId")
     private String jobId;
 
@@ -23,7 +27,7 @@ public class JobStatus {
         this.jobId = jobId;
         this.status = status;
         this.message = message;
-        this.submittedAt = Instant.now();
+        this.submittedAt = ZonedDateTime.now(GREEK_TIMEZONE).toInstant();
     }
 
     public String getJobId() {

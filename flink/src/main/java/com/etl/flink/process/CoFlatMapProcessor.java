@@ -14,6 +14,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +26,7 @@ import java.util.Map;
  */
 public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorEvent, EtlResult> {
     private static final Logger LOG = LoggerFactory.getLogger(CoFlatMapProcessor.class);
+    private static final ZoneId GREEK_TIMEZONE = ZoneId.of("Europe/Athens"); // UTC+2 (UTC+3 in summer)
 
     private transient MapState<String, EtlConfig> configState;
 
@@ -50,7 +53,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         configResult.setTransformations(config.getTransformations());
         configResult.setResult("Configuration registered successfully on subtask " +
                               getRuntimeContext().getIndexOfThisSubtask());
-        configResult.setProcessedAt(Instant.now());
+        configResult.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
 
         List<String> diagnostics = new ArrayList<>();
         diagnostics.add("Config registered for jobId: " + config.getJobId());
@@ -93,52 +96,73 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         diagnostics.add("Processed on subtask: " + getRuntimeContext().getIndexOfThisSubtask());
         diagnostics.add("Key group processing: " + getRuntimeContext().getIndexOfThisSubtask());
 
-        SensorEvent currentEvent = event;
-
         if (config.getTransformations() == null || config.getTransformations().isEmpty()) {
-            createSimpleResult(currentEvent, config, diagnostics, out);
+            createSimpleResult(event, config, diagnostics, out);
             return;
         }
 
-        // Process element transformations first
+        // Separate element transformations and aggregation transformations
+        List<Transformation> elementTransformations = new ArrayList<>();
+        List<Transformation> aggregationTransformations = new ArrayList<>();
+
         for (Transformation transformation : config.getTransformations()) {
             if (isElementTransformation(transformation.getType())) {
-                currentEvent = applyElementTransformation(currentEvent, transformation, diagnostics);
-                if (currentEvent == null) {
-                    return; // Event was filtered out
-                }
+                elementTransformations.add(transformation);
+            } else if (isAggregationTransformation(transformation.getType())) {
+                aggregationTransformations.add(transformation);
             }
         }
 
-        // Process aggregation transformations
-        for (Transformation transformation : config.getTransformations()) {
-            if (isAggregationTransformation(transformation.getType())) {
-                processWindowedAggregation(currentEvent, transformation, config, diagnostics, out);
+        // Strategy: Process each transformation path independently
+        // This allows different sensor filters to work in parallel
+
+        // Process element transformations - these apply to all events first
+        SensorEvent filteredEvent = event;
+        for (Transformation transformation : elementTransformations) {
+            filteredEvent = applyElementTransformation(filteredEvent, transformation, diagnostics);
+            if (filteredEvent == null) {
+                // If event doesn't pass element transformations, check if aggregations can still process original event
+                break;
             }
         }
 
-        // If no aggregations, emit final result
-        boolean hasAggregations = config.getTransformations().stream()
-                .anyMatch(t -> isAggregationTransformation(t.getType()));
-
-        if (!hasAggregations) {
-            createFinalResult(currentEvent, config, diagnostics, out);
+        // Process aggregation transformations - each can have its own sensor filter
+        boolean hasValidAggregations = false;
+        for (Transformation transformation : aggregationTransformations) {
+            // For aggregations, use original event and let each transformation apply its own sensor filter
+            if (processWindowedAggregation(event, transformation, config, new ArrayList<>(diagnostics), out)) {
+                hasValidAggregations = true;
+            }
         }
+
+        // If we have element transformations that passed and no aggregations, emit the filtered result
+        if (!aggregationTransformations.isEmpty()) {
+            // Aggregations were processed, no need to emit additional results
+            if (!hasValidAggregations && filteredEvent != null) {
+                // Element transformations passed but no aggregations matched - emit filtered result
+                diagnostics.add("Element transformations passed, no matching aggregations for this sensor type");
+                createFinalResult(filteredEvent, config, diagnostics, out);
+            }
+        } else if (filteredEvent != null) {
+            // Only element transformations, emit the result
+            createFinalResult(filteredEvent, config, diagnostics, out);
+        }
+        // If filteredEvent is null and no aggregations matched, the event is completely filtered out
     }
 
-    private void processWindowedAggregation(SensorEvent event, Transformation transformation,
+    private boolean processWindowedAggregation(SensorEvent event, Transformation transformation,
                                           EtlConfig config, List<String> diagnostics,
                                           Collector<EtlResult> out) {
 
         String field = getFieldFromParams(transformation.getParams(), "measurement");
+        String sensorFilter = getSensorFromParams(transformation.getParams());
         String keyBy = transformation.getKeyBy() != null ? transformation.getKeyBy() : "sensor";
-        String windowStr = transformation.getWindow() != null ? transformation.getWindow() : "1s";
 
-        // Calculate window boundaries
-        long windowSizeMs = parseWindowDurationToMs(windowStr);
-        long eventTimeMs = event.getDatetime().toEpochMilli();
-        long windowStart = (eventTimeMs / windowSizeMs) * windowSizeMs;
-        long windowEnd = windowStart + windowSizeMs;
+        // Apply sensor filter if specified
+        if (sensorFilter != null && !sensorFilter.equals(event.getSensor())) {
+            diagnostics.add("Aggregation skipped: sensor filter '" + sensorFilter + "' does not match event sensor '" + event.getSensor() + "'");
+            return false; // Skip this event - wrong sensor type
+        }
 
         String groupingKey = getGroupingKeyFromEvent(event, keyBy);
 
@@ -151,28 +175,24 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         result.setAggregationType(transformation.getType());
         result.setField(field);
         result.setResult(getFieldValue(event, field));
-        result.setProcessedAt(Instant.now());
+        result.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
 
         // Add sensor context information
         result.setSensorType(event.getSensor());
         result.setMeasurementUnit(event.getMeasurementUnit());
         result.setLocation(event.getLocation());
 
-        // Set window boundaries
-        result.setWindowStart(Instant.ofEpochMilli(windowStart));
-        result.setWindowEnd(Instant.ofEpochMilli(windowEnd));
-
-        diagnostics.add("Applied " + transformation.getType() + " aggregation with " + windowStr + " window");
-        diagnostics.add("Window: " + result.getWindowStart() + " to " + result.getWindowEnd());
+        diagnostics.add("Applied " + transformation.getType() + " aggregation - will be windowed downstream");
         diagnostics.add("Contributing sensor: " + event.getSensor() + " (" + event.getMeasurementUnit() + ")");
         diagnostics.add("From location: " + event.getLocation());
         result.setDiagnostics(new ArrayList<>(diagnostics));
 
         out.collect(result);
+        return true; // Successfully processed
     }
 
     private boolean isElementTransformation(String type) {
-        return "filter_greater".equals(type) || "filter_less".equals(type);
+        return "filter_greater".equals(type) || "filter_less".equals(type) || "filter_cross_field".equals(type);
     }
 
     private boolean isAggregationTransformation(String type) {
@@ -204,6 +224,13 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
             return (String) params.get("field");
         }
         return defaultField;
+    }
+
+    private String getSensorFromParams(Map<String, Object> params) {
+        if (params != null && params.containsKey("sensor")) {
+            return (String) params.get("sensor");
+        }
+        return null; // No sensor filter specified
     }
 
     private String getGroupingKeyFromEvent(SensorEvent event, String keyBy) {
@@ -248,26 +275,6 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         }
     }
 
-    private long parseWindowDurationToMs(String windowStr) {
-        if (windowStr == null || windowStr.isEmpty()) {
-            return 1000; // Default to 1 second
-        }
-
-        String numStr = windowStr.substring(0, windowStr.length() - 1);
-        char unit = windowStr.charAt(windowStr.length() - 1);
-
-        try {
-            int duration = Integer.parseInt(numStr);
-            switch (unit) {
-                case 's': return duration * 1000L;
-                case 'm': return duration * 60 * 1000L;
-                case 'h': return duration * 60 * 60 * 1000L;
-                default: return 1000L;
-            }
-        } catch (NumberFormatException e) {
-            return 1000L; // Default fallback
-        }
-    }
 
     private void createSimpleResult(SensorEvent event, EtlConfig config,
                                   List<String> diagnostics, Collector<EtlResult> out) {
@@ -278,7 +285,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         result.setGroupingField("sensor");
         result.setGroupingKey(event.getSensor());
         result.setResult(event);
-        result.setProcessedAt(Instant.now());
+        result.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
 
         // Add sensor context information
         result.setSensorType(event.getSensor());
@@ -300,7 +307,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         result.setGroupingField("sensor");
         result.setGroupingKey(event.getSensor());
         result.setResult(event);
-        result.setProcessedAt(Instant.now());
+        result.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
 
         // Add sensor context information
         result.setSensorType(event.getSensor());
@@ -322,7 +329,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         errorResult.setGroupingField("sensor");
         errorResult.setGroupingKey(event.getSensor());
         errorResult.setResult(null);
-        errorResult.setProcessedAt(Instant.now());
+        errorResult.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
 
         // Add sensor context information for error tracking
         errorResult.setSensorType(event.getSensor());

@@ -1,0 +1,22 @@
+{
+  "jobId": "test123-job",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "filter_greater",
+      "params": {
+        "sensor": "humidity",
+        "field": "measurement",
+        "threshold": 70
+      }
+    },
+    {
+      "type": "max",
+      "keyBy": "location",
+      "params": {
+        "field": "measurement",
+        "sensor": "temperature"
+      }
+    }
+  ]
+}
