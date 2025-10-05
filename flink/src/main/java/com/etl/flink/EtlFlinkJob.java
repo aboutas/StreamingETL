@@ -5,7 +5,6 @@ import com.etl.flink.model.EtlResult;
 import com.etl.flink.model.SensorEvent;
 import com.etl.flink.process.CoFlatMapProcessor;
 import com.etl.flink.process.ConfigKeyExtractor;
-import com.etl.flink.sink.MongoSink;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -14,6 +13,9 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.connector.base.DeliveryGuarantee;
+import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
+import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -51,13 +53,11 @@ public class EtlFlinkJob {
         String configTopic = getEnvOrDefault("CONFIG_TOPIC", "etl.config.v1");
         String inputTopic = getEnvOrDefault("INPUT_TOPIC", "etl.input.v1");
         String outputTopic = getEnvOrDefault("OUTPUT_TOPIC", "etl.output.v1");
-        String mongoUri = getEnvOrDefault("MONGO_URI", "mongodb://mongo:27017/etl_db");
 
         LOG.info("Kafka Bootstrap Servers: {}", kafkaBootstrapServers);
         LOG.info("Config Topic: {}", configTopic);
         LOG.info("Input Topic: {}", inputTopic);
         LOG.info("Output Topic: {}", outputTopic);
-        LOG.info("MongoDB URI: {}", mongoUri);
 
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
@@ -141,11 +141,18 @@ public class EtlFlinkJob {
         // Union all results
         DataStream<EtlResult> allResults = configResults.union(windowedResults);
 
-        // SINK 1: MongoDB (5th operator)
-        allResults.addSink(new MongoSink(mongoUri));
+        // Create Kafka Sink for output
+        KafkaSink<EtlResult> kafkaSink = KafkaSink.<EtlResult>builder()
+                .setBootstrapServers(kafkaBootstrapServers)
+                .setRecordSerializer(KafkaRecordSerializationSchema.builder()
+                        .setTopic(outputTopic)
+                        .setValueSerializationSchema(new EtlResultSerializationSchema())
+                        .build())
+                .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
+                .build();
 
-        // SINK 2: stdout (6th operator)
-        allResults.print("ETL Results");
+        // SINK: Kafka output topic
+        allResults.sinkTo(kafkaSink);
 
         LOG.info("Executing ETL Flink Job");
         env.execute("ETL Flink Job");
@@ -258,6 +265,34 @@ public class EtlFlinkJob {
             if (b.min < a.min) a.min = b.min;
             a.diagnostics.addAll(b.diagnostics);
             return a;
+        }
+    }
+
+    /**
+     * Serialization schema for EtlResult to JSON
+     */
+    public static class EtlResultSerializationSchema implements org.apache.flink.api.common.serialization.SerializationSchema<EtlResult> {
+        private static final long serialVersionUID = 1L;
+        private transient ObjectMapper objectMapper;
+
+        @Override
+        public void open(org.apache.flink.api.common.serialization.SerializationSchema.InitializationContext context) {
+            objectMapper = new ObjectMapper();
+            objectMapper.registerModule(new JavaTimeModule());
+        }
+
+        @Override
+        public byte[] serialize(EtlResult result) {
+            if (objectMapper == null) {
+                objectMapper = new ObjectMapper();
+                objectMapper.registerModule(new JavaTimeModule());
+            }
+            try {
+                return objectMapper.writeValueAsBytes(result);
+            } catch (Exception e) {
+                LOG.error("Failed to serialize result", e);
+                return new byte[0];
+            }
         }
     }
 

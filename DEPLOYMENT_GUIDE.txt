@@ -1,0 +1,63 @@
+DEPLOYMENT GUIDE - RUNNING SERVICES ON SEPARATE MACHINES
+========================================================
+
+ARCHITECTURE
+------------
+1. Flink Machine: Runs only the Flink job jar
+2. Kafka Machine: Already running Kafka brokers
+3. Application Server(s): Run the REST services (input-service, config-service, status-service)
+
+
+DEPLOYMENT STEPS
+----------------
+
+1. ON APPLICATION SERVER(S)
+---------------------------
+
+Build the services:
+  mvn clean package -DskipTests
+
+Run each service (replace <KAFKA_MACHINE> with actual IP/hostname):
+
+  java -jar services/input-service/target/input-service-*.jar \
+    --spring.kafka.bootstrap-servers=<KAFKA_MACHINE>:9092 \
+    --server.port=8081
+
+  java -jar services/config-service/target/config-service-*.jar \
+    --spring.kafka.bootstrap-servers=<KAFKA_MACHINE>:9092 \
+    --server.port=8082
+
+  java -jar services/status-service/target/status-service-*.jar \
+    --spring.kafka.bootstrap-servers=<KAFKA_MACHINE>:9092 \
+    --server.port=8083
+
+
+2. ON FLINK MACHINE
+-------------------
+
+Copy the jar to Flink machine:
+  scp flink-jobs/target/flink-jobs-*.jar user@flink-machine:/path/
+
+Submit to Flink cluster:
+  ./bin/flink run -d /path/flink-jobs-*.jar \
+    --kafka-bootstrap-servers <KAFKA_MACHINE>:9092
+
+
+3. CONFIGURATION UPDATES
+------------------------
+
+Update application.properties for each service:
+  spring.kafka.bootstrap-servers=<KAFKA_MACHINE_IP>:9092
+
+For Flink job, ensure sink is configured to Kafka topic only (no MongoDB).
+Output topic: etl.output.v1
+
+
+KEY POINTS
+----------
+- REST services connect to Kafka remotely
+- Flink job connects to Kafka remotely
+- Remove MongoDB sink configuration from Flink job
+- Ensure Kafka topic for sink exists: etl.output.v1
+- Configure firewall/security groups to allow connectivity between machines
+- Each service can run on the same application server or distributed across multiple servers

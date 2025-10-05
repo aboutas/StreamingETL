@@ -32,7 +32,8 @@
       "Bash(mvn:*)",
       "Read(//c/Users/tboutas/MyProjects/**)",
       "Bash(for:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
