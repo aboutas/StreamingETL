@@ -202,7 +202,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
     private SensorEvent applyElementTransformation(SensorEvent event, Transformation transformation,
                                                  List<String> diagnostics) throws Exception {
         try {
-            var mapFunction = ElementTransformations.createTransformation(transformation.getType(), transformation.getParams());
+            org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent> mapFunction = ElementTransformations.createTransformation(transformation.getType(), transformation.getParams());
             SensorEvent result = mapFunction.map(event);
 
             if (result == null && ("filter_greater".equals(transformation.getType()) || "filter_less".equals(transformation.getType()))) {

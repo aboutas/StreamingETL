@@ -1,617 +1,319 @@
-# ETL Flink Project - Real-Time Stream Processing (v1.0.0)
+# ETL Flink Project - SoftNet Cluster Deployment (v1.0.0)
 
 A production-ready real-time ETL (Extract, Transform, Load) system built with Apache Flink that processes sensor data streams with dynamically configurable transformations and TRUE parallelism using CoFlatMap architecture with 3-second windowing.
 
-## 🚀 Quick Start
+**Deployed on:** SoftNet Cluster (TUC) with 23 servers, HDP 3.1.0, Flink 1.10.0
+
+---
+
+## 🚀 Quick Start (SoftNet Cluster)
+
+### Prerequisites
+- Access to SoftNet cluster (clu04.softnet.tuc.gr)
+- TUC VPN connection (if outside TUC network)
+- Maven 3.x for building JARs
+
+### Build & Deploy
 
 ```bash
-# 1. Build & Start
+# 1. Build all JARs
 mvn clean package -DskipTests
-docker-compose up -d
 
-# 2. Start Flink Job
-docker exec etl-flink-project-flink-jobmanager-1 flink run -c com.etl.flink.EtlFlinkJob /opt/flink/usrlib/etl-flink-1.0.0.jar
+# 2. Upload to cluster (replace 'username' with your username)
+scp flink/target/etl-flink-1.0.0.jar username@clu04.softnet.tuc.gr:/home/username/
+scp services/etl-api/target/etl-api-1.0.0.jar username@clu04.softnet.tuc.gr:/home/username/
+scp services/etl-file-producer/target/etl-file-producer-1.0.0.jar username@clu04.softnet.tuc.gr:/home/username/
 
-# 3. Submit Multiple Configurations
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-temperature-monitoring.json
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-comprehensive-dashboard.json
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-server-environmental.json
+# 3. SSH to cluster
+ssh username@clu04.softnet.tuc.gr
 
-# 4. Monitor
-# Flink UI: http://localhost:8081
-# Check results: docker logs etl-flink-project-flink-taskmanager-1 --tail 20
+# 4. Submit Flink job via Dashboard
+# Open: http://clu01.softnet.tuc.gr:8081
+# Upload JAR and set parallelism to 11
+
+# 5. Start REST API
+java -jar etl-api-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --server.port=8080 &
+
+# 6. Start File Producer
+java -jar etl-file-producer-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --producer.rate.per.sec=10 &
+
+# 7. Submit config
+curl -X POST http://clu04.softnet.tuc.gr:8080/config \
+    -H "Content-Type: application/json" \
+    -d @config-test.json
 ```
+
+---
 
 ## 🏗️ Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    ETL FLINK PROJECT ARCHITECTURE                   │
+│           ETL FLINK PROJECT - SOFTNET CLUSTER DEPLOYMENT             │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────┐    ┌──────────────────┐    ┌─────────────────────┐
-│  Random Sensor   │    │   ETL API        │    │   Flink Cluster     │
-│  Data Generator  │    │  (Spring Boot)   │    │                     │
-│  (Real-time)     │    │  Configuration   │    │ JobManager:8081     │
-│  5 msg/sec       │    │  Submission      │    │ TaskManager:4 slots │
-└─────────┬────────┘    └─────────┬────────┘    └─────────┬───────────┘
-          │                       │                       │
-          │                       ▼                       │
-          │            ┌─────────────────────┐            │
-          │            │    Kafka Topics     │            │
-          │            │ etl.config.v1 ◄─────┼────────────┘
-          ▼            │ etl.input.v1  ◄─────┼──────┐
-┌─────────────────────┐│ etl.output.v1       │      │
-│  File Producer      ││                     │      │
-│  (Port: Internal)   │└─────────────────────┘      │
-│  • Rate: 5 msg/sec  │            │                 │
-│  • Random data      │            ▼                 │
-│  • Timestamps      │  ┌─────────────────────────────┐
-└─────────────────────┘  │     FLINK STREAM JOB        │
-                         │  ┌─────────────────────────┐ │
-                         │  │     CoFlatMap           │ │
-                         │  │  Config + Data → Results│ │
-                         │  │  TRUE Parallelism = 4   │ │
-                         │  └─────────────────────────┘ │
-                         └─────────────┬───────────────┘
-                                       │
-                                       ▼
-                              ┌─────────────────┐
-                              │    MongoDB      │
-                              │ Results Storage │
-                              │   Port: 27017   │
-                              └─────────────────┘
+│  ETL API         │    │ File Producer    │    │ SoftNet Flink       │
+│  (clu04:8080)    │    │ (clu04)          │    │ Cluster             │
+│  Config Submit   │    │ Sensor Data      │    │                     │
+│                  │    │ Stream           │    │ Master: clu01:8081  │
+└─────────┬────────┘    └─────────┬────────┘    │ Workers: 11 nodes   │
+          │                       │             │ Slots: 33 total     │
+          │                       │             └─────────┬───────────┘
+          ▼                       ▼                       │
+┌─────────────────────────────────────────────┐           │
+│        SoftNet Kafka Cluster (HDP)          │           │
+│  Brokers: clu02:6667, clu03:6667,           │           │
+│           clu04:6667, clu06:6667            │           │
+│                                             │           │
+│  Topics:                                    │           │
+│  • etl.config.v1  ◄─────────────────────────┼───────────┤
+│  • etl.input.v1   ◄─────────────────────────┤           │
+│  • etl.output.v1  ─────────────────────────►│           │
+└─────────────────────────────────────────────┘           │
+          ▲                                               │
+          │                                               │
+          └───────────────────────────────────────────────┘
+                       Flink Job Processes
+                    (CoFlatMap + Windowing)
 ```
 
-## 🔧 Key Features
+---
 
-### **TRUE CoFlatMap Architecture**
-- ✅ **Operator Name**: "Co-Flat Map" in Flink UI
-- ✅ **True Parallelism**: Configurable (default: 4)
-- ✅ **Memory Efficient**: Configs distributed by key groups, not broadcasted
-- ✅ **Scalable**: Handles thousands of configurations efficiently
+## 📦 Project Components
 
-### **Dynamic Configuration**
-- Submit ETL jobs via REST API without stopping streams
-- Multiple concurrent configurations supported
-- Real-time configuration updates
+### 1. Flink Job (`flink/`)
+- **Main Class:** `com.etl.flink.EtlFlinkJob`
+- **JAR:** `etl-flink-1.0.0.jar`
+- **Purpose:** Stream processing with transformations and aggregations
+- **Parallelism:** Configurable (default: 4, recommended: 11 for SoftNet)
+- **Sink:** Kafka topic `etl.output.v1`
 
-### **Flexible Processing**
-- **Element Transformations**: `filter_greater`, `filter_less`
-- **Windowed Aggregations**: `max`, `min`, `sum`, `avg`
-- **Dynamic KeyBy**: Group by any field (sensor, location, measurement_unit, etc.)
+### 2. ETL API (`services/etl-api/`)
+- **Port:** 8080
+- **JAR:** `etl-api-1.0.0.jar`
+- **Purpose:** REST API to submit ETL configurations
+- **Endpoint:** `POST /config`
 
-## 🛠️ Technology Stack
+### 3. File Producer (`services/etl-file-producer/`)
+- **JAR:** `etl-file-producer-1.0.0.jar`
+- **Purpose:** Streams sensor data from JSON files to Kafka
+- **Rate:** Configurable (default: 10 msg/sec)
 
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|---------|
-| **Stream Processing** | Apache Flink | 1.18.1 | Real-time data processing with CoFlatMap |
-| **Messaging** | Apache Kafka | 3.7.0 | Event streaming (3 topics) |
-| **Database** | MongoDB | 7.0 | Results storage with etl_db |
-| **API** | Spring Boot | 3.2.0 | Configuration management REST API |
-| **Orchestration** | Docker Compose | - | Multi-service deployment |
-| **Build** | Maven | 3.11.0 | Multi-module project build |
-| **Runtime** | Java | 17 | Application runtime environment |
+---
 
-## 📊 Stream Processing Implementation
+## 🔧 Configuration
 
-### **CoFlatMap + Dynamic KeyBy Pattern**
+### Environment Variables (Override defaults)
 
-```java
-// 1. Configuration Stream - keyed by target field
-DataStream<EtlConfig> configStream = env
-    .fromSource(configSource, WatermarkStrategy.noWatermarks(), "Config Source")
-    .map(new ConfigDeserializer())
-    .filter(config -> config != null)
-    .keyBy(new ConfigKeyExtractor()); // Routes config to correct subtask
+**Flink Job:**
+- `KAFKA_BOOTSTRAP_SERVERS` (default: `kafka:9092`)
+- `CONFIG_TOPIC` (default: `etl.config.v1`)
+- `INPUT_TOPIC` (default: `etl.input.v1`)
+- `OUTPUT_TOPIC` (default: `etl.output.v1`)
 
-// 2. Data Stream - keyed by same field for co-location
-DataStream<SensorEvent> eventStream = env
-    .fromSource(dataSource, watermarkStrategy, "Data Source")
-    .map(new EventDeserializer())
-    .filter(event -> event != null)
-    .keyBy(event -> "universal"); // Universal keying for config distribution
+**ETL API:**
+- `KAFKA_BOOTSTRAP_SERVERS`
+- `CONFIG_TOPIC`
 
-// 3. TRUE CoFlatMap: Both streams keyed for optimal distribution
-DataStream<EtlResult> processedStream = configStream
-    .connect(eventStream)
-    .flatMap(new CoFlatMapProcessor()); // Shows as "Co-Flat Map" in UI
+**File Producer:**
+- `KAFKA_BOOTSTRAP_SERVERS`
+- `INPUT_TOPIC`
+- `DATA_FILE` (path to sensor data JSON)
+- `RATE_PER_SEC` (messages per second)
+
+### SoftNet Cluster Specifics
+
+**Kafka Brokers:**
+```
+clu02.softnet.tuc.gr:6667
+clu03.softnet.tuc.gr:6667
+clu04.softnet.tuc.gr:6667
+clu06.softnet.tuc.gr:6667
 ```
 
-### **Why CoFlatMap vs Broadcast State?**
-
-| Aspect | CoFlatMap (Current) | Broadcast State (Previous) |
-|--------|--------------------|-----------------------------|
-| **UI Operator Name** | ✅ "Co-Flat Map" | ❌ "Co-Process-Broadcast" |
-| **Memory Usage** | ✅ O(configs/parallelism) | ❌ O(all_configs) per subtask |
-| **Scalability** | ✅ Linear with subtasks | ❌ Memory grows with configs |
-| **Config Distribution** | ✅ Per key group | ❌ ALL configs to ALL subtasks |
-| **Large Config Support** | ✅ Efficient | ❌ Memory intensive |
-
-## 🔧 Configuration Management
-
-### **Kafka Topics**
-- `etl.config.v1` (3 partitions) - Configuration submissions
-- `etl.input.v1` (3 partitions) - Sensor data stream
-- `etl.output.v1` (3 partitions) - Processed results
-
-### **Transformation Types**
-
-#### Element Transformations
-```json
-{
-  "type": "filter_greater",
-  "params": {
-    "field": "measurement",
-    "threshold": 25.0
-  }
-}
+**Zookeeper (for topic management):**
+```
+clu01.softnet.tuc.gr:2182
+clu02.softnet.tuc.gr:2182
+clu03.softnet.tuc.gr:2182
 ```
 
-#### Windowed Aggregations
-```json
-{
-  "type": "max",
-  "keyBy": "location",
-  "window": "30s",
-  "params": {
-    "field": "measurement"
-  }
-}
+**Flink Dashboard:**
+```
+http://clu01.softnet.tuc.gr:8081
 ```
 
-### **KeyBy Fields**
-- `sensor` - Group by sensor type (humidity, temperature, etc.)
-- `location` - Group by physical location (room-a, room-b, etc.)
-- `measurement_unit` - Group by unit (percent, celsius, AQI, lux)
-- `data_quality` - Group by quality level (excellent, good, fair, poor)
+---
 
-## 🚀 Installation & Setup
+## 📊 Kafka Topics
 
-### **Prerequisites**
-- Docker & Docker Compose
-- Maven 3.8+
-- Java 17
-- 8GB+ RAM recommended
+Create topics before deploying:
 
-### **Step-by-Step Setup**
-
-1. **Clone and Build**:
 ```bash
-git clone <repository>
-cd etl-flink-project
-mvn clean package -DskipTests
+cd /usr/hdp/current/kafka-broker
+
+# Input topic (sensor data)
+bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
+    --replication-factor 2 --partitions 4 --topic etl.input.v1
+
+# Config topic (ETL configurations)
+bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
+    --replication-factor 2 --partitions 4 --topic etl.config.v1
+
+# Output topic (processed results)
+bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
+    --replication-factor 2 --partitions 4 --topic etl.output.v1
+
+# List topics
+bin/kafka-topics.sh --list --zookeeper clu01.softnet.tuc.gr:2182
 ```
 
-2. **Start All Services**:
+---
+
+## 🧪 Testing
+
+### 1. Submit Configuration
+
 ```bash
-docker-compose up -d
+curl -X POST http://clu04.softnet.tuc.gr:8080/config \
+    -H "Content-Type: application/json" \
+    -d '{
+        "jobId": "test-job-001",
+        "source": "sensor-stream",
+        "keyBy": "universal",
+        "transformations": [
+            {
+                "type": "MAP",
+                "sourceField": "temperature",
+                "targetField": "temp_celsius",
+                "operation": "IDENTITY"
+            }
+        ],
+        "aggregations": [
+            {
+                "type": "AVG",
+                "field": "temperature",
+                "windowType": "TUMBLING",
+                "windowSize": 10
+            }
+        ]
+    }'
 ```
 
-3. **Start Flink Job**:
+### 2. Monitor Output
+
 ```bash
-docker exec etl-flink-project-flink-jobmanager-1 flink run -c com.etl.flink.EtlFlinkJob /opt/flink/usrlib/etl-flink-1.0.0.jar
+cd /usr/hdp/current/kafka-broker
+
+# Watch output topic
+bin/kafka-console-consumer.sh \
+    --bootstrap-server clu02.softnet.tuc.gr:6667 \
+    --topic etl.output.v1 \
+    --from-beginning
 ```
 
-4. **Verify System Health**:
+### 3. Check Flink Dashboard
+
+- **URL:** http://clu01.softnet.tuc.gr:8081
+- **Metrics:** Task slots, parallelism, backpressure
+- **Logs:** Check worker nodes for detailed logs
+
+---
+
+## 🛠️ Troubleshooting
+
+### Common Issues
+
+**1. Connection refused to kafka:9092**
+- **Cause:** Default Kafka servers not overridden
+- **Fix:** Set `KAFKA_BOOTSTRAP_SERVERS` or use program arguments
+
+**2. ClassNotFoundException / NoSuchMethodError**
+- **Cause:** Flink version mismatch (1.18.1 vs 1.10.0)
+- **Fix:** Rebuild with Flink 1.10.0 in `pom.xml`
+
+**3. Topic does not exist**
+- **Cause:** Kafka topics not created
+- **Fix:** Run topic creation commands (see Kafka Topics section)
+
+**4. No resources available**
+- **Cause:** Flink cluster full
+- **Fix:** Check http://clu01.softnet.tuc.gr:8081 for available slots
+
+### Debugging Commands
+
 ```bash
-# Check all services
-docker-compose ps
+# Check Flink job status
+cd /usr/local/flink
+./bin/flink list
 
-# Verify Flink UI
-curl http://localhost:8081/jobs
+# Check Kafka consumer group
+cd /usr/hdp/current/kafka-broker
+bin/kafka-consumer-groups.sh --bootstrap-server clu02.softnet.tuc.gr:6667 \
+    --group etl-data-consumer-v2 --describe
 
-# Check API health
-curl http://localhost:8080/health
+# View service logs
+tail -f /home/username/nohup.out
 ```
 
-5. **Submit Test Configurations**:
-```bash
-# Temperature monitoring (max by sensor, 5s window, threshold > 25.0)
-curl -X POST http://localhost:8080/config \
-  -H "Content-Type: application/json" \
-  -d @config-temperature-monitoring.json
-
-# Comprehensive dashboard (sum by measurement_unit, 15s window, threshold > 0.0)
-curl -X POST http://localhost:8080/config \
-  -H "Content-Type: application/json" \
-  -d @config-comprehensive-dashboard.json
-
-# Server environmental (sum by location, 10s window, threshold < 80.0)
-curl -X POST http://localhost:8080/config \
-  -H "Content-Type: application/json" \
-  -d @config-server-environmental.json
-```
-
-### **Service Startup Order**
-1. Zookeeper & MongoDB (parallel)
-2. Kafka → Topic initialization
-3. ETL API & File Producer
-4. Flink Cluster (JobManager → TaskManager)
-
-## 📡 API Reference
-
-### **Configuration Submission**
-**POST** `/config`
-
-**Request Body**:
-```json
-{
-  "jobId": "temperature-monitoring-job",
-  "source": "kafka://etl.input.v1",
-  "transformations": [
-    {
-      "type": "filter_greater",
-      "params": {
-        "field": "measurement",
-        "threshold": 0.0
-      }
-    },
-    {
-      "type": "max",
-      "keyBy": "location",
-      "window": "60s",
-      "params": {
-        "field": "measurement"
-      }
-    }
-  ],
-  "outputTopic": "etl.output.v1"
-}
-```
-
-**Response**:
-```json
-{
-  "jobId": "temperature-monitoring-job",
-  "message": "Configuration submitted successfully",
-  "status": "success"
-}
-```
-
-### **Health Check**
-**GET** `/health`
-```json
-{
-  "service": "etl-api",
-  "status": "UP",
-  "timestamp": "2025-09-26T12:00:00Z"
-}
-```
-
-## 📋 Configuration Examples
-
-### **Temperature Monitoring**
-```json
-{
-  "jobId": "temperature-monitoring-job",
-  "source": "kafka://etl.input.v1",
-  "transformations": [
-    {
-      "type": "filter_greater",
-      "params": {
-        "field": "measurement",
-        "threshold": 0.0
-      }
-    },
-    {
-      "type": "max",
-      "keyBy": "location",
-      "window": "60s",
-      "params": {
-        "field": "measurement"
-      }
-    }
-  ],
-  "outputTopic": "etl.output.v1"
-}
-```
-
-### **Quality Analysis**
-```json
-{
-  "jobId": "quality-analysis-job",
-  "source": "kafka://etl.input.v1",
-  "transformations": [
-    {
-      "type": "filter_greater",
-      "params": {
-        "field": "measurement",
-        "threshold": 0.0
-      }
-    },
-    {
-      "type": "avg",
-      "keyBy": "data_quality",
-      "window": "120s",
-      "params": {
-        "field": "measurement"
-      }
-    }
-  ],
-  "outputTopic": "etl.output.v1"
-}
-```
-
-## ⚡ Performance & Scaling
-
-### **Current Configuration**
-- **Task Slots**: 4 per TaskManager
-- **Global Parallelism**: 4 (set in EtlFlinkJob.java:44)
-- **Checkpointing**: 30-second intervals, EXACTLY_ONCE mode
-- **State Backend**: Filesystem with local storage
-- **Window Processing**: 3-second tumbling windows
-- **Watermarks**: 5-second bounded out-of-orderness
-
-### **Parallelism Configuration**
-
-#### **1. Code Level (EtlFlinkJob.java)**
-```java
-StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-env.setParallelism(8); // Set global parallelism
-```
-
-#### **2. Docker Compose Level**
-```yaml
-environment:
-  FLINK_PROPERTIES: |
-    taskmanager.numberOfTaskSlots: 8  # Increase task slots
-    parallelism.default: 8            # Increase default parallelism
-```
-
-#### **3. Per-Operator Level**
-```java
-.keyBy(event -> event.getSensor())
-.setParallelism(6) // Set specific operator parallelism
-```
-
-### **Scaling Recommendations**
-
-#### **Horizontal Scaling**
-```yaml
-# Add more TaskManagers
-flink-taskmanager-2:
-  image: flink:1.18.1-scala_2.12-java17
-  environment:
-    FLINK_PROPERTIES: |
-      jobmanager.rpc.address: flink-jobmanager
-      taskmanager.numberOfTaskSlots: 4
-```
-
-#### **Kafka Partition Scaling**
-```bash
-docker exec etl-flink-project-kafka-1 kafka-topics \
-  --bootstrap-server localhost:9092 --alter \
-  --topic etl.input.v1 --partitions 8
-```
-
-## 📊 Monitoring & Operations
-
-### **System Monitoring**
-
-#### **Flink Cluster**
-```bash
-# Job status
-curl http://localhost:8081/jobs
-
-# Parallelism verification
-curl -s "http://localhost:8081/jobs/{jobId}" | grep -o '"parallelism":[0-9]*'
-
-# TaskManager status
-curl http://localhost:8081/taskmanagers
-```
-
-#### **Kafka Topics**
-```bash
-# Topic status
-docker exec etl-flink-project-kafka-1 kafka-topics \
-  --bootstrap-server localhost:9092 --list
-
-# Message consumption test
-timeout 10 docker exec etl-flink-project-kafka-1 kafka-console-consumer \
-  --bootstrap-server localhost:9092 --topic etl.input.v1 \
-  --offset latest --partition 0 --max-messages 5
-```
-
-#### **MongoDB Results**
-```bash
-# Results count
-docker exec etl-flink-project-mongo-1 mongosh etl_db \
-  --eval "db.etl_results.countDocuments()"
-
-# Recent results
-docker exec etl-flink-project-mongo-1 mongosh etl_db \
-  --eval "db.etl_results.find().limit(5).pretty()"
-```
-
-### **Log Analysis**
-```bash
-# Flink Job logs
-docker logs etl-flink-project-flink-jobmanager-1 --tail 50
-
-# TaskManager logs (check for CoFlatMap processing)
-docker logs etl-flink-project-flink-taskmanager-1 --tail 50
-
-# ETL API logs
-docker logs etl-flink-project-etl-api-1 --tail 20
-
-# File Producer logs
-docker logs etl-flink-project-etl-file-producer-1 --tail 20
-```
-
-## 🔧 Troubleshooting
-
-### **Common Issues**
-
-#### **1. Job Not Starting**
-```bash
-# Check JAR exists
-docker exec etl-flink-project-flink-jobmanager-1 ls -la /opt/flink/usrlib/
-
-# Manual job start
-docker exec etl-flink-project-flink-jobmanager-1 \
-  flink run -d usrlib/etl-flink-1.0.0.jar
-```
-
-#### **2. Config Not Processing**
-```bash
-# Check config submission
-curl -X POST http://localhost:8080/config \
-  -H "Content-Type: application/json" \
-  -d @config-temperature-monitoring.json
-
-# Verify config in Kafka (timing sensitive)
-timeout 5 docker exec etl-flink-project-kafka-1 kafka-console-consumer \
-  --bootstrap-server localhost:9092 --topic etl.config.v1 \
-  --from-beginning --timeout-ms 3000
-
-# Check CoFlatMap processing
-docker logs etl-flink-project-flink-taskmanager-1 | grep "Config registered"
-```
-
-#### **3. Low Parallelism**
-```bash
-# Verify parallelism in Flink UI
-curl -s "http://localhost:8081/jobs/{jobId}" | grep -o '"parallelism":[0-9]*'
-
-# Check ship strategy (should be HASH for both streams)
-curl -s "http://localhost:8081/jobs/{jobId}" | grep "ship_strategy"
-```
-
-### **Recovery Procedures**
-
-#### **Full System Restart**
-```bash
-# Stop all services
-docker-compose down
-
-# Rebuild and start
-mvn clean package -DskipTests
-docker-compose up -d
-
-# Wait and start job
-sleep 30
-docker exec etl-flink-project-flink-jobmanager-1 \
-  flink run -d usrlib/etl-flink-1.0.0.jar
-```
+---
 
 ## 📁 Project Structure
 
 ```
 etl-flink-project/
-├── flink/                          # Flink Job Implementation (v1.0.0)
-│   ├── pom.xml                     # Flink module Maven config
-│   └── src/main/java/com/etl/flink/
-│       ├── EtlFlinkJob.java        # Main entry point with WindowAggregator
-│       ├── model/                  # Data models
-│       │   ├── EtlConfig.java      # Configuration data model
-│       │   ├── EtlResult.java      # Processing result model
-│       │   ├── SensorEvent.java    # Input sensor data model
-│       │   └── Transformation.java # Transformation definition
-│       ├── process/               # Stream processors
-│       │   ├── CoFlatMapProcessor.java    # TRUE CoFlatMap implementation
-│       │   └── ConfigKeyExtractor.java   # Configuration routing
-│       ├── sink/                  # Output sinks
-│       │   └── MongoSink.java     # MongoDB results sink
-│       └── udf/                   # User-defined functions
-│           ├── ElementTransformations.java  # Filter functions
-│           └── WindowedAggregations.java    # Aggregation functions
+├── flink/                          # Flink streaming job
+│   ├── src/main/java/com/etl/flink/
+│   │   ├── EtlFlinkJob.java       # Main entry point
+│   │   ├── model/                 # Data models
+│   │   ├── process/               # CoFlatMap processor
+│   │   └── udf/                   # User-defined functions
+│   └── pom.xml
 ├── services/
-│   ├── etl-api/                   # Configuration API (Spring Boot 3.2.0)
-│   │   ├── pom.xml                # API module Maven config
-│   │   └── src/main/java/com/etl/api/
-│   │       ├── EtlApiApplication.java      # Spring Boot main class
-│   │       ├── controller/        # REST controllers
-│   │       ├── model/             # API data models
-│   │       └── service/           # Business logic services
-│   └── etl-file-producer/         # Data generator (Spring Boot)
-├── config-*.json                  # Example ETL configurations
-├── data/                          # Sample sensor data files
-├── docker-compose.yml             # Complete system orchestration
-├── pom.xml                        # Root Maven configuration (Java 17)
-├── flink.md                       # Detailed Flink architecture documentation
-├── RUN.txt                        # Quick start commands
+│   ├── etl-api/                   # REST API for config submission
+│   │   ├── src/main/java/com/etl/api/
+│   │   └── pom.xml
+│   └── etl-file-producer/         # Sensor data producer
+│       ├── src/main/java/com/etl/producer/
+│       └── pom.xml
+├── data-samples/                  # Sample JSON files
+├── pom.xml                        # Parent POM
+├── DEPLOYMENT_GUIDE.txt           # Detailed deployment steps
 └── README.md                      # This file
 ```
 
-## 🎯 Key Implementation Details
+---
 
-### **CoFlatMap Architecture Highlights**
+## 🔗 Resources
 
-1. **TRUE CoFlatMap**: Shows as "Co-Flat Map" in Flink UI (not "Co-Process-Broadcast")
-2. **Memory Efficient**: Each subtask only stores configs for its key group
-3. **Dynamic Routing**: `ConfigKeyExtractor` routes configs to appropriate subtasks
-4. **Ship Strategy**: HASH for both config and data streams (optimal distribution)
-5. **Scalable**: Supports thousands of configurations without memory overhead
-
-### **Performance Characteristics**
-- **Throughput**: 5 msg/sec default (configurable via RATE_PER_SEC)
-- **Latency**: Sub-second for element transformations, 3s for windowed results
-- **Memory**: O(configs/parallelism) per subtask with fixed-size WindowAccumulator
-- **Parallelism**: Default 4 slots, fully configurable from 1 to N task slots
-- **Window Size**: 3-second tumbling windows for aggregations
+- **SoftNet Cluster:** Contact xenia@softnet.tuc.gr
+- **Flink Documentation:** https://nightlies.apache.org/flink/
+- **HDP Documentation:** https://docs.cloudera.com/HDPDocuments/
+- **Deployment Guide:** See `DEPLOYMENT_GUIDE.txt` for step-by-step instructions
 
 ---
 
-## 🎉 Quick Verification
+## 📝 Version History
 
-After setup, verify everything works:
-
-```bash
-# 1. Check system status
-docker-compose ps
-
-# 2. Verify Flink job running with correct parallelism
-curl -s http://localhost:8081/jobs | grep -o '"status":"RUNNING"'
-
-# 3. Submit multiple test configurations
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-temperature-monitoring.json
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-comprehensive-dashboard.json
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-server-environmental.json
-
-# 4. Check CoFlatMap operator name and parallelism
-JOB_ID=$(curl -s http://localhost:8081/jobs | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-curl -s "http://localhost:8081/jobs/$JOB_ID" | grep "Co-Flat Map"
-curl -s "http://localhost:8081/jobs/$JOB_ID" | grep -o '"parallelism":[0-9]*'
-
-# 5. Watch processing logs
-docker logs etl-flink-project-flink-taskmanager-1 --tail 10 -f
-```
-
-**Expected Results:**
-- ✅ All services running
-- ✅ Flink UI shows "Co-Flat Map" operator
-- ✅ Parallelism matches configuration (default: 4)
-- ✅ Configuration processed on specific subtask
-- ✅ Data flowing and processing against configurations
+- **v1.0.0** - Initial SoftNet cluster deployment
+  - Removed Docker Compose dependencies
+  - Changed sink from MongoDB to Kafka
+  - Configured for SoftNet cluster (23 nodes, HDP 3.1.0)
+  - Parallelism optimized for 11 worker nodes
 
 ---
 
-## 🔄 Recent Updates (v1.0.0)
+## 📄 License
 
-### **Latest Changes**
-- ✅ **Working Parallelism**: TRUE CoFlatMap implementation with 4-slot parallelism
-- ✅ **3-Second Windowing**: TumblingProcessingTimeWindows for fast aggregation feedback
-- ✅ **Universal Keying**: Optimal config distribution across subtasks
-- ✅ **WindowAggregator**: Efficient incremental aggregation with fixed-size accumulators
-- ✅ **Enhanced Sensor Filtering**: Dual-level filtering in CoFlatMapProcessor and windowing
-- ✅ **Updated Dependencies**: Flink 1.18.1, Kafka 3.7.0, MongoDB 7.0, Java 17
-
-### **Git History**
-```bash
-301d634 Working Parallelism        # Current: TRUE CoFlatMap with parallelism=4
-1421e72 Documentation add          # Enhanced documentation updates
-7fcc7db testing-configs           # Configuration testing improvements
-5254097 Windowing                 # 3-second window implementation
-ac528b9 Init Commit               # Initial project setup
-```
-
-### **Key Performance Metrics**
-- **Memory Efficiency**: O(configs/parallelism) per subtask
-- **Latency**: < 1ms for element transforms, 3s max for windowed aggregations
-- **Throughput**: 5 msg/sec default, linear scaling with parallel slots
-- **Window Processing**: Fixed 3-second tumbling windows with incremental aggregation
+This project is for academic/research purposes at Technical University of Crete (TUC).
 
 ---
 
-*Built with ❤️ using Apache Flink, Kafka, and TRUE CoFlatMap architecture for production-ready real-time ETL processing.*
+## 👥 Contact
+
+For deployment issues on SoftNet cluster, contact the cluster administrator at xenia@softnet.tuc.gr

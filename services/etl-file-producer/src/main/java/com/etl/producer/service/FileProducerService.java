@@ -271,7 +271,7 @@ public class FileProducerService {
                     }
 
                     // Create JSON object for this sensor in this room
-                    var jsonObject = objectMapper.createObjectNode();
+                    com.fasterxml.jackson.databind.node.ObjectNode jsonObject = objectMapper.createObjectNode();
                     jsonObject.put("sensor", sensorType);
                     jsonObject.put("measurement", measurement);
                     jsonObject.put("measurement_unit", unit);
@@ -553,7 +553,7 @@ public class FileProducerService {
             measurement = Math.round(measurement * 10.0) / 10.0;
 
             // Create JSON object
-            var jsonObject = objectMapper.createObjectNode();
+            com.fasterxml.jackson.databind.node.ObjectNode jsonObject = objectMapper.createObjectNode();
             jsonObject.put("sensor", sensorType);
             jsonObject.put("measurement", measurement);
             jsonObject.put("measurement_unit", unit);
@@ -592,7 +592,7 @@ public class FileProducerService {
             }
 
             // Add jobId to the JSON object only if explicitly configured
-            var objectNode = jsonNode.deepCopy();
+            com.fasterxml.jackson.databind.JsonNode objectNode = jsonNode.deepCopy();
             ((com.fasterxml.jackson.databind.node.ObjectNode) objectNode).put("jobId", defaultJobId);
 
             return objectMapper.writeValueAsString(objectNode);

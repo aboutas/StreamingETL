@@ -10,16 +10,16 @@
     <packaging>pom</packaging>
 
     <properties>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <flink.version>1.18.1</flink.version>
-        <scala.binary.version>2.12</scala.binary.version>
-        <kafka.version>3.7.0</kafka.version>
-        <mongodb.version>4.10.2</mongodb.version>
-        <jackson.version>2.17.1</jackson.version>
-        <slf4j.version>2.0.12</slf4j.version>
-        <logback.version>1.5.6</logback.version>
+        <flink.version>1.9.3</flink.version>
+        <scala.binary.version>2.11</scala.binary.version>
+        <kafka.version>2.4.1</kafka.version>
+        <mongodb.version>4.0.5</mongodb.version>
+        <jackson.version>2.10.5</jackson.version>
+        <slf4j.version>1.7.30</slf4j.version>
+        <logback.version>1.2.3</logback.version>
     </properties>
 
     <modules>
@@ -32,13 +32,13 @@
         <dependencies>
             <dependency>
                 <groupId>org.apache.flink</groupId>
-                <artifactId>flink-streaming-java</artifactId>
+                <artifactId>flink-streaming-java_${scala.binary.version}</artifactId>
                 <version>${flink.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.flink</groupId>
-                <artifactId>flink-connector-kafka</artifactId>
-                <version>3.0.1-1.18</version>
+                <artifactId>flink-connector-kafka_2.11</artifactId>
+                <version>${flink.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.kafka</groupId>
@@ -68,7 +68,7 @@
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-starter-web</artifactId>
-                <version>3.2.0</version>
+                <version>2.3.12.RELEASE</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -80,8 +80,8 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
-                    <source>17</source>
-                    <target>17</target>
+                    <source>8</source>
+                    <target>8</target>
                 </configuration>
             </plugin>
         </plugins>

@@ -33,7 +33,8 @@
       "Read(//c/Users/tboutas/MyProjects/**)",
       "Bash(for:*)",
       "Bash(find:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "ask": []

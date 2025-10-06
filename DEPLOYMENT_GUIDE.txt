@@ -1,63 +1,441 @@
-DEPLOYMENT GUIDE - RUNNING SERVICES ON SEPARATE MACHINES
-========================================================
+================================================================================
+SOFTNET CLUSTER DEPLOYMENT GUIDE - ETL FLINK PROJECT
+================================================================================
 
-ARCHITECTURE
-------------
-1. Flink Machine: Runs only the Flink job jar
-2. Kafka Machine: Already running Kafka brokers
-3. Application Server(s): Run the REST services (input-service, config-service, status-service)
-
-
-DEPLOYMENT STEPS
+PROJECT OVERVIEW
 ----------------
+This project consists of 3 components:
+1. Flink Job (etl-flink-1.0.0.jar) - Processes sensor data with transformations
+2. ETL API Service (etl-api-1.0.0.jar) - REST API to submit configurations
+3. ETL File Producer (etl-file-producer-1.0.0.jar) - Streams sensor data from files
 
-1. ON APPLICATION SERVER(S)
----------------------------
+ARCHITECTURE: Moving away from Docker Compose to SoftNet Cluster
+- Flink Job runs on SoftNet Flink Cluster (clu01 master, 11 workers)
+- Kafka is already running on SoftNet (4 brokers)
+- Spring Boot services run on application server (can be clu04 or your machine)
 
-Build the services:
-  mvn clean package -DskipTests
+FILES TO TRANSFER (Built JARs and Configs)
+-------------------------------------------
+From your local machine → SoftNet cluster:
 
-Run each service (replace <KAFKA_MACHINE> with actual IP/hostname):
+JARs (already built in target/ directories):
+  • c:\Users\tboutas\MyProjects\etl-flink-project\flink\target\etl-flink-1.0.0.jar
+  • c:\Users\tboutas\MyProjects\etl-flink-project\services\etl-api\target\etl-api-1.0.0.jar
+  • c:\Users\tboutas\MyProjects\etl-flink-project\services\etl-file-producer\target\etl-file-producer-1.0.0.jar
 
-  java -jar services/input-service/target/input-service-*.jar \
-    --spring.kafka.bootstrap-servers=<KAFKA_MACHINE>:9092 \
-    --server.port=8081
+Config files (application.yml for each service):
+  • c:\Users\tboutas\MyProjects\etl-flink-project\services\etl-api\src\main\resources\application.yml
+  • c:\Users\tboutas\MyProjects\etl-flink-project\services\etl-file-producer\src\main\resources\application.yml
 
-  java -jar services/config-service/target/config-service-*.jar \
-    --spring.kafka.bootstrap-servers=<KAFKA_MACHINE>:9092 \
-    --server.port=8082
-
-  java -jar services/status-service/target/status-service-*.jar \
-    --spring.kafka.bootstrap-servers=<KAFKA_MACHINE>:9092 \
-    --server.port=8083
-
-
-2. ON FLINK MACHINE
--------------------
-
-Copy the jar to Flink machine:
-  scp flink-jobs/target/flink-jobs-*.jar user@flink-machine:/path/
-
-Submit to Flink cluster:
-  ./bin/flink run -d /path/flink-jobs-*.jar \
-    --kafka-bootstrap-servers <KAFKA_MACHINE>:9092
+NOTE: You can edit the config files before transferring to customize Kafka servers,
+      ports, topics, etc. Or override them with command-line args when starting services.
 
 
-3. CONFIGURATION UPDATES
-------------------------
+================================================================================
+STEP 1: BUILD THE PROJECT
+================================================================================
 
-Update application.properties for each service:
-  spring.kafka.bootstrap-servers=<KAFKA_MACHINE_IP>:9092
+1.1 Clean build all modules:
+    cd c:\Users\tboutas\MyProjects\etl-flink-project
+    mvn clean package -DskipTests
 
-For Flink job, ensure sink is configured to Kafka topic only (no MongoDB).
-Output topic: etl.output.v1
+    This creates:
+    - flink/target/etl-flink-1.0.0.jar (Flink job - 15MB)
+    - services/etl-api/target/etl-api-1.0.0.jar (REST API - 26MB)
+    - services/etl-file-producer/target/etl-file-producer-1.0.0.jar (Producer - 22MB)
+
+1.2 Verify JARs exist:
+    ls -lh flink/target/etl-flink-1.0.0.jar
+    ls -lh services/etl-api/target/etl-api-1.0.0.jar
+    ls -lh services/etl-file-producer/target/etl-file-producer-1.0.0.jar
 
 
-KEY POINTS
-----------
-- REST services connect to Kafka remotely
-- Flink job connects to Kafka remotely
-- Remove MongoDB sink configuration from Flink job
-- Ensure Kafka topic for sink exists: etl.output.v1
-- Configure firewall/security groups to allow connectivity between machines
-- Each service can run on the same application server or distributed across multiple servers
+================================================================================
+STEP 2: UPLOAD FILES TO SOFTNET CLUSTER
+================================================================================
+
+2.1 Connect to TUC VPN (if outside TUC network)
+
+2.2 Upload Flink JAR to clu04:
+    FROM: c:\Users\tboutas\MyProjects\etl-flink-project\flink\target\etl-flink-1.0.0.jar
+
+    scp c:\Users\tboutas\MyProjects\etl-flink-project\flink\target\etl-flink-1.0.0.jar username@clu04.softnet.tuc.gr:/home/username/
+
+2.3 Upload API JAR and config to clu04:
+    FROM: c:\Users\tboutas\MyProjects\etl-flink-project\services\etl-api\target\etl-api-1.0.0.jar
+    FROM: c:\Users\tboutas\MyProjects\etl-flink-project\services\etl-api\src\main\resources\application.yml
+
+    scp c:\Users\tboutas\MyProjects\etl-flink-project\services\etl-api\target\etl-api-1.0.0.jar username@clu04.softnet.tuc.gr:/home/username/
+    scp c:\Users\tboutas\MyProjects\etl-flink-project\services\etl-api\src\main\resources\application.yml username@clu04.softnet.tuc.gr:/home/username/config/etl-api-application.yml
+
+2.4 Upload File Producer JAR and config to clu04:
+    FROM: c:\Users\tboutas\MyProjects\etl-flink-project\services\etl-file-producer\target\etl-file-producer-1.0.0.jar
+    FROM: c:\Users\tboutas\MyProjects\etl-flink-project\services\etl-file-producer\src\main\resources\application.yml
+
+    scp c:\Users\tboutas\MyProjects\etl-flink-project\services\etl-file-producer\target\etl-file-producer-1.0.0.jar username@clu04.softnet.tuc.gr:/home/username/
+    scp c:\Users\tboutas\MyProjects\etl-flink-project\services\etl-file-producer\src\main\resources\application.yml username@clu04.softnet.tuc.gr:/home/username/config/etl-file-producer-application.yml
+
+2.5 Upload test data files (if needed):
+    scp data-samples/*.json username@clu04.softnet.tuc.gr:/home/username/data/
+
+2.6 Create config directory on cluster (first time only):
+    ssh username@clu04.softnet.tuc.gr "mkdir -p /home/username/config"
+
+
+================================================================================
+STEP 3: CREATE KAFKA TOPICS ON SOFTNET CLUSTER
+================================================================================
+
+3.1 SSH to clu04:
+    ssh username@clu04.softnet.tuc.gr
+
+3.2 Navigate to Kafka:
+    cd /usr/hdp/current/kafka-broker
+
+3.3 Create input topic:
+    bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
+        --replication-factor 2 --partitions 4 --topic etl.input.v1
+
+3.4 Create config topic:
+    bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
+        --replication-factor 2 --partitions 4 --topic etl.config.v1
+
+3.5 Create output topic:
+    bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
+        --replication-factor 2 --partitions 4 --topic etl.output.v1
+
+3.6 Verify topics:
+    bin/kafka-topics.sh --list --zookeeper clu01.softnet.tuc.gr:2182
+
+
+================================================================================
+STEP 4: DEPLOY FLINK JOB TO SOFTNET FLINK CLUSTER
+================================================================================
+
+IMPORTANT: SoftNet Flink cluster uses Flink 1.10.0, your JAR uses 1.18.1
+This may cause compatibility issues. Two options:
+
+OPTION A: Submit via Flink Dashboard (Recommended for testing)
+------------------------------------------------------------
+4A.1 Open Flink Dashboard: http://clu01.softnet.tuc.gr:8081
+
+4A.2 Click "Submit New Job" → "Add New"
+
+4A.3 Upload /home/username/etl-flink-1.0.0.jar
+
+4A.4 After upload, click on the JAR name
+
+4A.5 Set Program Arguments (CRITICAL - these override defaults):
+     --kafka-bootstrap-servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667
+     --config-topic etl.config.v1
+     --input-topic etl.input.v1
+     --output-topic etl.output.v1
+
+4A.6 Set Parallelism: 11 (matches number of workers)
+
+4A.7 Click "Submit"
+
+4A.8 Monitor job at: http://clu01.softnet.tuc.gr:8081/#/job/running
+
+
+OPTION B: Submit via Command Line
+----------------------------------
+4B.1 SSH to clu04:
+     ssh username@clu04.softnet.tuc.gr
+
+4B.2 Navigate to Flink:
+     cd /usr/local/flink/
+
+4B.3 Submit job:
+     ./bin/flink run \
+         -p 11 \
+         -d \
+         /home/username/etl-flink-1.0.0.jar
+
+     Note: Environment variables from code defaults will be used:
+     - KAFKA_BOOTSTRAP_SERVERS defaults to "kafka:9092" (WRONG for SoftNet!)
+
+     To override, use Java -D flags (if Flink supports it):
+     ./bin/flink run \
+         -p 11 \
+         -d \
+         -yD env.java.opts="-DKAFKA_BOOTSTRAP_SERVERS=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667" \
+         /home/username/etl-flink-1.0.0.jar
+
+
+================================================================================
+STEP 5: START REST API SERVICE
+================================================================================
+
+5.1 SSH to clu04:
+    ssh username@clu04.softnet.tuc.gr
+
+5.2 Start ETL API service with external config:
+    CONFIG FILE: /home/username/config/etl-api-application.yml
+
+    java -jar etl-api-1.0.0.jar \
+        --spring.config.location=/home/username/config/etl-api-application.yml \
+        --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+        --kafka.config.topic=etl.config.v1 \
+        --server.port=8080 &
+
+    NOTE: Command-line args override config file values
+
+5.3 Test API is running:
+    curl http://clu04.softnet.tuc.gr:8080/actuator/health
+
+5.4 View logs:
+    tail -f nohup.out
+
+
+================================================================================
+STEP 6: START FILE PRODUCER SERVICE
+================================================================================
+
+6.1 Start File Producer with external config:
+    CONFIG FILE: /home/username/config/etl-file-producer-application.yml
+
+    java -jar etl-file-producer-1.0.0.jar \
+        --spring.config.location=/home/username/config/etl-file-producer-application.yml \
+        --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+        --kafka.input.topic=etl.input.v1 \
+        --producer.data.file=/home/username/data/sensors.json \
+        --producer.rate.per.sec=10 &
+
+    NOTE: Command-line args override config file values
+
+
+================================================================================
+STEP 7: TEST THE SYSTEM
+================================================================================
+
+7.1 Submit a test configuration via API:
+    curl -X POST http://clu04.softnet.tuc.gr:8080/config \
+        -H "Content-Type: application/json" \
+        -d '{
+            "jobId": "test-job-001",
+            "source": "sensor-stream",
+            "keyBy": "universal",
+            "transformations": [
+                {
+                    "type": "MAP",
+                    "sourceField": "temperature",
+                    "targetField": "temp_celsius",
+                    "operation": "IDENTITY"
+                }
+            ],
+            "aggregations": [
+                {
+                    "type": "AVG",
+                    "field": "temperature",
+                    "windowType": "TUMBLING",
+                    "windowSize": 10
+                }
+            ]
+        }'
+
+7.2 Check Kafka output topic for results:
+    cd /usr/hdp/current/kafka-broker
+
+    bin/kafka-console-consumer.sh \
+        --bootstrap-server clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+        --topic etl.output.v1 \
+        --from-beginning
+
+7.3 Monitor Flink job:
+    http://clu01.softnet.tuc.gr:8081
+
+7.4 Check YARN Resource Manager:
+    http://clu01.softnet.tuc.gr:8189/ui2/#/yarn-apps/apps
+
+
+================================================================================
+IMPORTANT NOTES & TROUBLESHOOTING
+================================================================================
+
+FLINK VERSION COMPATIBILITY:
+- Your project has been rebuilt with Flink 1.9.3 for compatibility
+- SoftNet cluster has Flink 1.10.0
+- Flink 1.9.3 is compatible with Java 8 (cluster runs Java 1.8.0_161)
+- The JAR should work on the Flink 1.10.0 cluster (one minor version difference)
+- All Kafka connector APIs have been updated to Flink 1.9.3 format
+
+
+KAFKA BOOTSTRAP SERVERS:
+- SoftNet uses: clu02:6667,clu03:6667,clu04:6667,clu06:6667
+- Your code defaults to: kafka:9092
+- MUST override via environment variables or program arguments!
+
+
+ZOOKEEPER:
+- SoftNet uses: clu01:2182,clu02:2182,clu03:2182
+- Only needed for Kafka admin operations (topic creation)
+- NOT needed for Flink job (it connects to Kafka directly)
+
+
+ENVIRONMENT VARIABLES YOUR CODE USES:
+- KAFKA_BOOTSTRAP_SERVERS (defaults to kafka:9092)
+- CONFIG_TOPIC (defaults to etl.config.v1)
+- INPUT_TOPIC (defaults to etl.input.v1)
+- OUTPUT_TOPIC (defaults to etl.output.v1)
+
+
+PARALLELISM:
+- Your code sets parallelism to 4
+- SoftNet has 33 task slots (11 workers × 3 slots each)
+- Recommended parallelism: 11 (one per worker) or 33 (all slots)
+
+
+COMMON ISSUES:
+
+1. "Connection refused to kafka:9092"
+   → Environment variables not set, Kafka servers hardcoded to "kafka:9092"
+   → Fix: Override via program arguments or rebuild JAR with correct defaults
+
+2. "ClassNotFoundException" or "NoSuchMethodError"
+   → If this occurs, there may be a compatibility issue with Flink 1.10.0
+   → Project is built with Flink 1.9.3 APIs which should be compatible
+
+3. "Topic does not exist"
+   → Kafka topics not created
+   → Fix: Run STEP 3 to create topics
+
+4. "No resources available"
+   → Flink cluster full or not running
+   → Fix: Check http://clu01.softnet.tuc.gr:8081 for available task slots
+
+
+================================================================================
+ALTERNATIVE: RUN SERVICES ON YOUR LOCAL MACHINE
+================================================================================
+
+If you want to run the Spring Boot services locally instead of on clu04:
+
+1. Update application.yml files to point to SoftNet Kafka:
+
+   services/etl-api/src/main/resources/application.yml:
+   kafka:
+     bootstrap:
+       servers: clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667
+
+2. Rebuild:
+   mvn clean package -DskipTests
+
+3. Run locally:
+   java -jar services/etl-api/target/etl-api-1.0.0.jar
+   java -jar services/etl-file-producer/target/etl-file-producer-1.0.0.jar
+
+4. Connect to TUC VPN to access SoftNet Kafka
+
+
+================================================================================
+MONITORING & DEBUGGING
+================================================================================
+
+1. Flink Dashboard:
+   http://clu01.softnet.tuc.gr:8081
+
+2. YARN Resource Manager:
+   http://clu01.softnet.tuc.gr:8189/ui2/#/yarn-apps/apps
+
+3. Check Flink logs on worker nodes:
+   ssh username@clu11.softnet.tuc.gr
+   tail -f /usr/local/flink/log/flink-*.log
+
+4. Kafka consumer group status:
+   cd /usr/hdp/current/kafka-broker
+   bin/kafka-consumer-groups.sh --bootstrap-server clu02.softnet.tuc.gr:6667 \
+       --group etl-data-consumer-v2 --describe
+
+5. View Kafka messages:
+   # Input topic
+   bin/kafka-console-consumer.sh \
+       --bootstrap-server clu02.softnet.tuc.gr:6667 \
+       --topic etl.input.v1 --from-beginning --max-messages 10
+
+   # Config topic
+   bin/kafka-console-consumer.sh \
+       --bootstrap-server clu02.softnet.tuc.gr:6667 \
+       --topic etl.config.v1 --from-beginning --max-messages 10
+
+   # Output topic
+   bin/kafka-console-consumer.sh \
+       --bootstrap-server clu02.softnet.tuc.gr:6667 \
+       --topic etl.output.v1 --from-beginning
+
+
+================================================================================
+CLEANUP & STOP SERVICES
+================================================================================
+
+1. Stop Flink job:
+   # Via Dashboard
+   http://clu01.softnet.tuc.gr:8081 → Click on job → Cancel
+
+   # Via CLI
+   cd /usr/local/flink
+   ./bin/flink list
+   ./bin/flink cancel <JOB-ID>
+
+2. Stop Spring Boot services:
+   # Find process IDs
+   ps aux | grep etl-api
+   ps aux | grep etl-file-producer
+
+   # Kill processes
+   kill <PID>
+
+3. Delete Kafka topics (if needed):
+   cd /usr/hdp/current/kafka-broker
+   bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.input.v1
+   bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.config.v1
+   bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.output.v1
+
+
+================================================================================
+NEXT STEPS FOR PRODUCTION
+================================================================================
+
+1. Flink version compatibility:
+   - Project has been rebuilt with Flink 1.9.3 for Java 8 and cluster compatibility
+   - Compatible with SoftNet's Flink 1.10.0 cluster
+
+2. Externalize configuration:
+   - Create application-softnet.yml profiles
+   - Use environment-specific configurations
+
+3. Add monitoring:
+   - Set up Prometheus metrics export
+   - Create Grafana dashboards
+
+4. Implement error handling:
+   - Dead letter queues for failed records
+   - Alerting for job failures
+
+5. Optimize parallelism:
+   - Test with different parallelism levels (11, 22, 33)
+   - Monitor throughput and latency
+
+6. Security:
+   - Enable Kafka SSL/SASL if available
+   - Use Kerberos authentication for HDFS access
+
+
+================================================================================
+CONTACT & SUPPORT
+================================================================================
+
+SoftNet Cluster Admin: xenia@softnet.tuc.gr
+Cluster Access: https://softnet.tuc.gr
+VPN Access: TUC IT Support
+
+For issues with this deployment guide:
+- Check logs first
+- Verify network connectivity to SoftNet cluster
+- Ensure VPN is connected (if outside TUC)
+- Contact SoftNet admin for cluster-specific issues
+
+
+================================================================================
+END OF DEPLOYMENT GUIDE
+================================================================================

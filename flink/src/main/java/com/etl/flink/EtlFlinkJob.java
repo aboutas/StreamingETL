@@ -5,24 +5,19 @@ import com.etl.flink.model.EtlResult;
 import com.etl.flink.model.SensorEvent;
 import com.etl.flink.process.CoFlatMapProcessor;
 import com.etl.flink.process.ConfigKeyExtractor;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
-import org.apache.flink.connector.base.DeliveryGuarantee;
-import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
-import org.apache.flink.connector.kafka.sink.KafkaSink;
-import org.apache.flink.connector.kafka.source.KafkaSource;
-import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
+import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingProcessingTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
-import org.apache.flink.api.common.functions.AggregateFunction;
+import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor;
+import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
+import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
+import org.apache.flink.streaming.util.serialization.KeyedSerializationSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,22 +26,17 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-
-import java.time.Duration;
-import java.time.Instant;
+import java.util.Properties;
 
 public class EtlFlinkJob {
     private static final Logger LOG = LoggerFactory.getLogger(EtlFlinkJob.class);
-    private static final ZoneId GREEK_TIMEZONE = ZoneId.of("Europe/Athens"); // UTC+2 (UTC+3 in summer)
+    private static final ZoneId GREEK_TIMEZONE = ZoneId.of("Europe/Athens");
 
     public static void main(String[] args) throws Exception {
-        LOG.info("Starting ETL Flink Job");
+        LOG.info("Starting ETL Flink Job - Flink 1.9.3 compatible");
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.enableCheckpointing(30000);
-
-        // Set global parallelism to 4 for testing
         env.setParallelism(4);
 
         String kafkaBootstrapServers = getEnvOrDefault("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092");
@@ -59,100 +49,100 @@ public class EtlFlinkJob {
         LOG.info("Input Topic: {}", inputTopic);
         LOG.info("Output Topic: {}", outputTopic);
 
-        ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.registerModule(new JavaTimeModule());
+        Properties kafkaProps = new Properties();
+        kafkaProps.setProperty("bootstrap.servers", kafkaBootstrapServers);
+        kafkaProps.setProperty("group.id", "etl-flink-consumer");
 
-        KafkaSource<String> configSource = KafkaSource.<String>builder()
-                .setBootstrapServers(kafkaBootstrapServers)
-                .setTopics(configTopic)
-                .setGroupId("etl-config-consumer")
-                .setStartingOffsets(OffsetsInitializer.earliest())
-                .setValueOnlyDeserializer(new SimpleStringSchema())
-                .build();
+        // Config Consumer (Flink 1.9.3 API)
+        FlinkKafkaConsumer<String> configConsumer = new FlinkKafkaConsumer<>(
+                configTopic,
+                new SimpleStringSchema(),
+                kafkaProps
+        );
+        configConsumer.setStartFromEarliest();
 
-        KafkaSource<String> dataSource = KafkaSource.<String>builder()
-                .setBootstrapServers(kafkaBootstrapServers)
-                .setTopics(inputTopic)
-                .setGroupId("etl-data-consumer-v2")
-                .setStartingOffsets(OffsetsInitializer.earliest())
-                .setValueOnlyDeserializer(new SimpleStringSchema())
-                .build();
+        // Data Consumer (Flink 1.9.3 API)
+        FlinkKafkaConsumer<String> dataConsumer = new FlinkKafkaConsumer<>(
+                inputTopic,
+                new SimpleStringSchema(),
+                kafkaProps
+        );
+        dataConsumer.setStartFromEarliest();
 
-        // Create configuration stream - keyed by same field as data stream for TRUE CoFlatMap
+        // Config stream
         DataStream<EtlConfig> configStream = env
-                .fromSource(configSource, WatermarkStrategy.noWatermarks(), "Config Source")
+                .addSource(configConsumer)
+                .name("Config Source")
                 .map(new ConfigDeserializer())
                 .filter(config -> config != null)
-                .keyBy(new ConfigKeyExtractor()); // Key configs by their target keyBy field
+                .keyBy(new ConfigKeyExtractor());
 
-        // Create keyed event stream - enables parallel processing by sensor field
+        // Event stream with timestamp extraction (Flink 1.9.3 API)
         DataStream<SensorEvent> eventStream = env
-                .fromSource(dataSource,
-                        WatermarkStrategy.<String>forBoundedOutOfOrderness(Duration.ofSeconds(5))
-                                .withTimestampAssigner((event, timestamp) -> {
-                                    try {
-                                        ObjectMapper mapper = new ObjectMapper();
-                                        mapper.registerModule(new JavaTimeModule());
-                                        SensorEvent sensorEvent = mapper.readValue(event, SensorEvent.class);
-                                        return sensorEvent.getDatetime().toEpochMilli();
-                                    } catch (Exception e) {
-                                        LOG.warn("Failed to extract timestamp from event: {}", event, e);
-                                        return ZonedDateTime.now(GREEK_TIMEZONE).toInstant().toEpochMilli();
-                                    }
-                                }),
-                        "Data Source")
+                .addSource(dataConsumer)
+                .name("Data Source")
                 .map(new EventDeserializer())
                 .filter(event -> event != null)
-                .keyBy(event -> "universal"); // Key by universal - matches config routing
+                .assignTimestampsAndWatermarks(
+                        new BoundedOutOfOrdernessTimestampExtractor<SensorEvent>(Time.seconds(5)) {
+                            @Override
+                            public long extractTimestamp(SensorEvent event) {
+                                try {
+                                    return event.getDatetime().toEpochMilli();
+                                } catch (Exception e) {
+                                    LOG.warn("Failed to extract timestamp: {}", e.getMessage());
+                                    return ZonedDateTime.now(GREEK_TIMEZONE).toInstant().toEpochMilli();
+                                }
+                            }
+                        }
+                )
+                .keyBy(event -> "universal");
 
-        // TRUE CoFlatMap: Both streams keyed by same field for optimal distribution
+        // CoFlatMap processing
         DataStream<EtlResult> processedStream = configStream
                 .connect(eventStream)
                 .flatMap(new CoFlatMapProcessor());
 
-        // Split streams: configs vs data with windowing
+        // Split streams: configs vs data
         DataStream<EtlResult> configResults = processedStream
                 .filter(result -> result.getAggregationType() == null);
 
         DataStream<EtlResult> dataResults = processedStream
                 .filter(result -> result.getAggregationType() != null)
                 .assignTimestampsAndWatermarks(
-                    WatermarkStrategy.<EtlResult>forBoundedOutOfOrderness(Duration.ofSeconds(5))
-                        .withTimestampAssigner((result, timestamp) -> {
-                            if (result.getProcessedAt() != null) {
-                                return result.getProcessedAt().toEpochMilli();
+                        new BoundedOutOfOrdernessTimestampExtractor<EtlResult>(Time.seconds(5)) {
+                            @Override
+                            public long extractTimestamp(EtlResult result) {
+                                if (result.getProcessedAt() != null) {
+                                    return result.getProcessedAt().toEpochMilli();
+                                }
+                                return Instant.now().toEpochMilli();
                             }
-                            return Instant.now().toEpochMilli();
-                        })
+                        }
                 );
 
-        // WINDOWING OPERATOR (4th operator) - Use fixed 10s windows to get system working first
+        // Windowing
         DataStream<EtlResult> windowedResults = dataResults
-                .keyBy(result -> {
-                    return String.format("%s|%s|%s",
+                .keyBy(result -> String.format("%s|%s|%s",
                         result.getGroupingKey() != null ? result.getGroupingKey() : "default",
                         result.getJobId() != null ? result.getJobId() : "unknown",
                         result.getAggregationType() != null ? result.getAggregationType() : "none"
-                    );
-                })
+                ))
                 .window(TumblingProcessingTimeWindows.of(Time.seconds(3)))
                 .aggregate(new WindowAggregator());
 
-        // Union all results
+        // Union results
         DataStream<EtlResult> allResults = configResults.union(windowedResults);
 
-        // Create Kafka Sink for output
-        KafkaSink<EtlResult> kafkaSink = KafkaSink.<EtlResult>builder()
-                .setBootstrapServers(kafkaBootstrapServers)
-                .setRecordSerializer(KafkaRecordSerializationSchema.builder()
-                        .setTopic(outputTopic)
-                        .setValueSerializationSchema(new EtlResultSerializationSchema())
-                        .build())
-                .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
-                .build();
+        // Kafka Producer (Flink 1.9.3 API)
+        FlinkKafkaProducer<EtlResult> kafkaProducer = new FlinkKafkaProducer<>(
+                outputTopic,
+                new EtlResultSerializationSchema(),
+                kafkaProps,
+                FlinkKafkaProducer.Semantic.AT_LEAST_ONCE
+        );
 
-        // SINK: Kafka output topic
-        allResults.sinkTo(kafkaSink);
+        allResults.addSink(kafkaProducer).name("Kafka Sink");
 
         LOG.info("Executing ETL Flink Job");
         env.execute("ETL Flink Job");
@@ -164,7 +154,6 @@ public class EtlFlinkJob {
     }
 
     public static class ConfigDeserializer implements MapFunction<String, EtlConfig> {
-
         @Override
         public EtlConfig map(String value) throws Exception {
             try {
@@ -178,7 +167,6 @@ public class EtlFlinkJob {
     }
 
     public static class EventDeserializer implements MapFunction<String, SensorEvent> {
-
         @Override
         public SensorEvent map(String value) throws Exception {
             try {
@@ -192,11 +180,7 @@ public class EtlFlinkJob {
         }
     }
 
-    /**
-     * Window aggregator that performs sum/avg/min/max operations
-     */
     public static class WindowAggregator implements AggregateFunction<EtlResult, WindowAccumulator, EtlResult> {
-
         @Override
         public WindowAccumulator createAccumulator() {
             return new WindowAccumulator();
@@ -223,7 +207,7 @@ public class EtlFlinkJob {
                 accumulator.accumulate(value);
                 accumulator.count++;
                 accumulator.diagnostics.add(String.format("WINDOWED %s: %.2f contributing to %s",
-                    accumulator.aggregationType, value, accumulator.aggregationType));
+                        accumulator.aggregationType, value, accumulator.aggregationType));
             }
 
             return accumulator;
@@ -242,16 +226,14 @@ public class EtlFlinkJob {
             result.setResult(accumulator.getResult());
             result.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
 
-            // Set sensor context
             result.setSensorType(accumulator.sensorType);
             result.setMeasurementUnit(accumulator.measurementUnit);
             result.setLocation(accumulator.location);
 
-            // Add windowing diagnostics
             List<String> diagnostics = new ArrayList<>(accumulator.diagnostics);
             diagnostics.add(String.format("WINDOWED %s: %d values aggregated = %.2f",
                     accumulator.aggregationType, accumulator.count, accumulator.getResult()));
-            diagnostics.add("Window: 10s fixed window");
+            diagnostics.add("Window: 3s tumbling window");
             result.setDiagnostics(diagnostics);
 
             return result;
@@ -269,20 +251,18 @@ public class EtlFlinkJob {
     }
 
     /**
-     * Serialization schema for EtlResult to JSON
+     * Kafka Serialization Schema for Flink 1.9.3
      */
-    public static class EtlResultSerializationSchema implements org.apache.flink.api.common.serialization.SerializationSchema<EtlResult> {
-        private static final long serialVersionUID = 1L;
+    public static class EtlResultSerializationSchema implements KeyedSerializationSchema<EtlResult> {
         private transient ObjectMapper objectMapper;
 
         @Override
-        public void open(org.apache.flink.api.common.serialization.SerializationSchema.InitializationContext context) {
-            objectMapper = new ObjectMapper();
-            objectMapper.registerModule(new JavaTimeModule());
+        public byte[] serializeKey(EtlResult result) {
+            return null; // No key needed
         }
 
         @Override
-        public byte[] serialize(EtlResult result) {
+        public byte[] serializeValue(EtlResult result) {
             if (objectMapper == null) {
                 objectMapper = new ObjectMapper();
                 objectMapper.registerModule(new JavaTimeModule());
@@ -294,11 +274,13 @@ public class EtlFlinkJob {
                 return new byte[0];
             }
         }
+
+        @Override
+        public String getTargetTopic(EtlResult result) {
+            return null; // Use default topic from producer config
+        }
     }
 
-    /**
-     * Accumulator for window aggregation
-     */
     public static class WindowAccumulator {
         public String jobId;
         public String source;
@@ -326,11 +308,16 @@ public class EtlFlinkJob {
 
         public Double getResult() {
             switch (aggregationType) {
-                case "sum": return sum;
-                case "max": return max.equals(Double.NEGATIVE_INFINITY) ? 0.0 : max;
-                case "min": return min.equals(Double.POSITIVE_INFINITY) ? 0.0 : min;
-                case "avg": return count > 0 ? sum / count : 0.0;
-                default: return sum;
+                case "sum":
+                    return sum;
+                case "max":
+                    return max.equals(Double.NEGATIVE_INFINITY) ? 0.0 : max;
+                case "min":
+                    return min.equals(Double.POSITIVE_INFINITY) ? 0.0 : min;
+                case "avg":
+                    return count > 0 ? sum / count : 0.0;
+                default:
+                    return sum;
             }
         }
     }
