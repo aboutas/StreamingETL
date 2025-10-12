@@ -13,7 +13,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PreDestroy;
+import javax.annotation.PreDestroy;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.nio.file.Files;
