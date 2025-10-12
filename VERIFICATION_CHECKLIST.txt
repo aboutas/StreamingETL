@@ -1,0 +1,361 @@
+================================================================================
+END-TO-END VERIFICATION CHECKLIST - ETL FLINK PROJECT
+================================================================================
+
+Use this checklist to verify data flows through ALL components correctly.
+Each step shows EXACTLY what to run and what output to expect.
+
+CLUSTER: clu04.softnet.tuc.gr
+USER: avoutas
+WORKING DIR: /home/avoutas/boutasThesis
+
+================================================================================
+STEP 1: DEPLOY FLINK JOB
+================================================================================
+
+ssh avoutas@clu04.softnet.tuc.gr
+cd /usr/local/flink/
+
+# Set environment variables
+export KAFKA_BOOTSTRAP_SERVERS="clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667"
+export CONFIG_TOPIC="etl.config.v1"
+export INPUT_TOPIC="etl.input.v1"
+export OUTPUT_TOPIC="etl.output.v1"
+
+# Submit Flink job
+./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar
+
+EXPECTED OUTPUT:
+✓ "Job has been submitted with JobID ..."
+✓ NO errors about Kafka connections
+
+VERIFY:
+./bin/flink list
+
+EXPECTED OUTPUT:
+✓ Your job should be listed with state "RUNNING"
+✓ NOT "RESTARTING" or "FAILED"
+
+FLINK DASHBOARD CHECK:
+Open: http://clu01.softnet.tuc.gr:8081
+✓ Job shows status: RUNNING (green)
+✓ All operators show status: RUNNING
+
+⚠️ IF JOB KEEPS RESTARTING:
+Check logs: /usr/local/flink/log/flink-*-taskexecutor-*.out
+Look for Kafka connection errors
+
+================================================================================
+STEP 2: START ETL API
+================================================================================
+
+cd /home/avoutas/boutasThesis
+
+java -jar etl-api-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.config.topic=etl.config.v1 \
+    --server.port=8080 &
+
+EXPECTED OUTPUT (within 5 seconds):
+✓ "Started EtlApiApplication in X.XXX seconds"
+✓ "Kafka producer initialized with bootstrap servers: clu02.softnet.tuc.gr:6667,..."
+
+⚠️ IF FAILS:
+Check if port 8080 already in use: netstat -tuln | grep 8080
+Kill old process if needed: kill <PID>
+
+================================================================================
+STEP 3: START FILE PRODUCER
+================================================================================
+
+java -jar etl-file-producer-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.input.topic=etl.input.v1 \
+    --producer.mode=random \
+    --producer.rate.per.sec=10 &
+
+EXPECTED OUTPUT (within 5 seconds):
+✓ "Started FileProducerApplication in X.XXX seconds"
+✓ "Kafka producer initialized with bootstrap servers: clu02.softnet.tuc.gr:6667,..."
+✓ "Producer mode: random"
+✓ "Starting comprehensive random data production mode"
+
+================================================================================
+STEP 4: VERIFY DATA FLOWING TO KAFKA INPUT TOPIC
+================================================================================
+
+cd /usr/hdp/current/kafka-broker
+
+# Check input topic for sensor data (wait 10 seconds, press Ctrl+C to exit)
+bin/kafka-console-consumer.sh \
+    --bootstrap-server clu02.softnet.tuc.gr:6667 \
+    --topic etl.input.v1 \
+    --offset latest \
+    --partition 0 \
+    --max-messages 5
+
+EXPECTED OUTPUT:
+✓ You should see 5 JSON messages with sensor data
+✓ Each message has: sensorType, location, value, measurementUnit, datetime
+✓ Example:
+  {"sensorType":"temperature","location":"room-a","value":22.5,"measurementUnit":"°C","datetime":"2025-10-12T..."}
+
+⚠️ IF NO DATA:
+- Check file-producer is running: ps aux | grep etl-file-producer
+- Check for errors in file-producer terminal output
+
+================================================================================
+STEP 5: VERIFY FLINK DATA SOURCE RECEIVING DATA
+================================================================================
+
+Open Flink Dashboard: http://clu01.softnet.tuc.gr:8081
+
+1. Click on your running job
+2. Find "Data Source" operator in the graph
+3. Click on it to see details
+
+EXPECTED METRICS:
+✓ Records Sent: > 0 (should be increasing)
+✓ Records Received: > 0 (should be increasing)
+✓ Bytes Sent: > 0
+✓ Status: RUNNING (NOT "FAILED")
+
+⚠️ IF Data Source shows 0 records or FAILED:
+- Job has Kafka connection issues
+- Check Flink logs: /usr/local/flink/log/
+- Verify environment variables were exported before job submission
+
+================================================================================
+STEP 6: SUBMIT TEST CONFIG
+================================================================================
+
+cd /home/avoutas/boutasThesis
+
+curl -X POST http://clu04.softnet.tuc.gr:8080/config \
+    -H "Content-Type: application/json" \
+    -d @config-test123.json
+
+EXPECTED OUTPUT:
+✓ JSON response with:
+  {"jobId":"test123","status":"REGISTERED",...}
+
+⚠️ IF Connection refused:
+- ETL API not running
+- Check: ps aux | grep etl-api
+
+================================================================================
+STEP 7: VERIFY CONFIG FLOWING TO KAFKA CONFIG TOPIC
+================================================================================
+
+cd /usr/hdp/current/kafka-broker
+
+# Check config topic (should show your submitted config immediately)
+bin/kafka-console-consumer.sh \
+    --bootstrap-server clu02.softnet.tuc.gr:6667 \
+    --topic etl.config.v1 \
+    --from-beginning \
+    --timeout-ms 5000
+
+EXPECTED OUTPUT:
+✓ JSON config message with:
+  {"jobId":"test123","source":...,"transformations":...,"aggregation":...}
+
+⚠️ IF NO CONFIG:
+- Config wasn't published to Kafka
+- Check ETL API terminal for errors
+
+================================================================================
+STEP 8: VERIFY FLINK CONFIG SOURCE RECEIVING CONFIG
+================================================================================
+
+Open Flink Dashboard: http://clu01.softnet.tuc.gr:8081
+
+1. Click on your running job
+2. Find "Config Source" operator in the graph
+3. Click on it to see details
+
+EXPECTED METRICS:
+✓ Records Sent: > 0 (at least 1 for your config)
+✓ Records Received: > 0
+✓ Status: RUNNING
+
+================================================================================
+STEP 9: VERIFY ALL OPERATORS PROCESSING DATA
+================================================================================
+
+In Flink Dashboard, check EACH operator in the job graph:
+
+OPERATORS TO CHECK:
+1. Data Source → Records Sent > 0 ✓
+2. Config Source → Records Sent > 0 ✓
+3. Map (EventDeserializer) → Records Sent > 0 ✓
+4. Filter → Records Sent > 0 ✓
+5. CoFlatMap → Records Sent > 0 ✓
+6. Window (TumblingProcessingTimeWindows) → Records Sent > 0 ✓
+7. Aggregate (WindowAggregator) → Records Sent > 0 ✓
+8. Union → Records Sent > 0 ✓
+9. Kafka Sink → Records Received > 0 ✓
+
+⚠️ IF ANY OPERATOR SHOWS 0 RECORDS:
+- Data not flowing through that operator
+- Check if filters are too restrictive
+- Check operator logs in Flink dashboard
+
+================================================================================
+STEP 10: VERIFY OUTPUT IN KAFKA OUTPUT TOPIC
+================================================================================
+
+cd /usr/hdp/current/kafka-broker
+
+# Monitor output topic (wait 10-15 seconds for aggregation window)
+bin/kafka-console-consumer.sh \
+    --bootstrap-server clu02.softnet.tuc.gr:6667 \
+    --topic etl.output.v1 \
+    --from-beginning
+
+EXPECTED OUTPUT:
+✓ Two types of messages:
+
+1. CONFIG CONFIRMATION (immediate):
+   {"jobId":"test123","source":"sensors","transformations":[...],"result":null,...}
+
+2. AGGREGATED RESULTS (after 3-second window):
+   {"jobId":"test123","aggregationType":"avg","field":"value","result":22.5,"groupingKey":"room-a",...}
+   {"jobId":"test123","aggregationType":"max","field":"value","result":25.8,"groupingKey":"room-b",...}
+
+✓ Results should appear every 3 seconds (window size)
+✓ Each result has: jobId, aggregationType, field, result, groupingKey
+
+⚠️ IF NO OUTPUT:
+- Check step 9 - verify all operators have data
+- Check Kafka Sink operator in Flink dashboard
+- Verify filters match your sensor data
+
+================================================================================
+STEP 11: SUBMIT ADDITIONAL CONFIGS (OPTIONAL)
+================================================================================
+
+Test with more complex configs:
+
+curl -X POST http://clu04.softnet.tuc.gr:8080/config \
+    -H "Content-Type: application/json" \
+    -d @config-cold-humid-rooms.json
+
+curl -X POST http://clu04.softnet.tuc.gr:8080/config \
+    -H "Content-Type: application/json" \
+    -d @config-air-quality-hot-days.json
+
+Then check output topic again - should see results for multiple jobIds
+
+================================================================================
+SUCCESS CRITERIA - ALL MUST BE TRUE
+================================================================================
+
+✓ Flink job shows RUNNING (not restarting)
+✓ Data Source operator: Records Sent > 0
+✓ Config Source operator: Records Sent > 0
+✓ All intermediate operators: Records Sent > 0
+✓ Kafka Sink operator: Records Received > 0
+✓ Kafka input topic shows sensor data
+✓ Kafka config topic shows submitted configs
+✓ Kafka output topic shows:
+  - Config confirmations
+  - Aggregated results every 3 seconds
+
+================================================================================
+TROUBLESHOOTING SUMMARY
+================================================================================
+
+PROBLEM: Flink job keeps restarting
+→ Check environment variables were exported before ./bin/flink run
+→ Check Flink logs for Kafka connection errors
+→ Verify Kafka brokers are accessible from cluster
+
+PROBLEM: Data Source shows 0 records
+→ File Producer not running: ps aux | grep etl-file-producer
+→ Kafka input topic empty: check with kafka-console-consumer
+→ Kafka connection issues: check Flink logs
+
+PROBLEM: Config Source shows 0 records
+→ ETL API not running: ps aux | grep etl-api
+→ Config not submitted: check API response
+→ Kafka config topic empty: check with kafka-console-consumer
+
+PROBLEM: Intermediate operators show 0 records
+→ Filters too restrictive: check config filters match sensor data
+→ Transformations failing: check Flink operator logs
+
+PROBLEM: No output in Kafka output topic
+→ Work backwards from step 10 to step 5
+→ Find first operator with 0 records
+→ Check that operator's logs in Flink dashboard
+
+PROBLEM: API connection refused
+→ Port 8080 already in use: netstat -tuln | grep 8080
+→ Service crashed: check for errors in terminal output
+→ Wrong hostname: verify clu04.softnet.tuc.gr
+
+================================================================================
+COMPLETE VERIFICATION SCRIPT (RUN ALL AT ONCE)
+================================================================================
+
+ssh avoutas@clu04.softnet.tuc.gr
+
+# 1. Deploy Flink job
+cd /usr/local/flink/
+export KAFKA_BOOTSTRAP_SERVERS="clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667"
+export CONFIG_TOPIC="etl.config.v1"
+export INPUT_TOPIC="etl.input.v1"
+export OUTPUT_TOPIC="etl.output.v1"
+./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar
+
+# Wait 10 seconds for job to start
+sleep 10
+
+# Verify job is running
+./bin/flink list
+
+# 2. Start ETL API
+cd /home/avoutas/boutasThesis
+java -jar etl-api-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.config.topic=etl.config.v1 \
+    --server.port=8080 &
+
+# Wait 10 seconds for API to start
+sleep 10
+
+# 3. Start File Producer
+java -jar etl-file-producer-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.input.topic=etl.input.v1 \
+    --producer.mode=random \
+    --producer.rate.per.sec=10 &
+
+# Wait 10 seconds for producer to start
+sleep 10
+
+# 4. Verify all services running
+ps aux | grep etl
+
+# 5. Check Flink Dashboard
+echo "Open in browser: http://clu01.softnet.tuc.gr:8081"
+echo "Verify all operators show Records Sent > 0"
+
+# 6. Submit test config
+curl -X POST http://clu04.softnet.tuc.gr:8080/config \
+    -H "Content-Type: application/json" \
+    -d @config-test123.json
+
+# 7. Monitor output (wait 15 seconds for window aggregation)
+cd /usr/hdp/current/kafka-broker
+bin/kafka-console-consumer.sh \
+    --bootstrap-server clu02.softnet.tuc.gr:6667 \
+    --topic etl.output.v1 \
+    --from-beginning
+
+# Press Ctrl+C when you see results appearing every 3 seconds
+
+================================================================================
+END OF VERIFICATION CHECKLIST
+================================================================================

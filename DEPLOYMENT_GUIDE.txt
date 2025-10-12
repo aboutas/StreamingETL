@@ -124,26 +124,30 @@ Generates realistic data for:
 STEP 7: TEST & MONITOR
 ================================================================================
 
-Submit test configs:
+⚠️ IMPORTANT: Use VERIFICATION_CHECKLIST.txt for complete end-to-end testing
+              It verifies data flows through ALL Flink operators step-by-step
+
+Quick test:
 cd /home/avoutas/boutasThesis
 
 curl -X POST http://clu04.softnet.tuc.gr:8080/config \
     -H "Content-Type: application/json" \
     -d @config-test123.json
 
-curl -X POST http://clu04.softnet.tuc.gr:8080/config \
-    -H "Content-Type: application/json" \
-    -d @config-cold-humid-rooms.json
-
-Monitor Kafka output:
+Monitor Kafka output (wait 15 seconds for aggregation window):
 cd /usr/hdp/current/kafka-broker
 bin/kafka-console-consumer.sh \
     --bootstrap-server clu02.softnet.tuc.gr:6667 \
     --topic etl.output.v1 \
     --from-beginning
 
+Expected output:
+- Config confirmation (immediate)
+- Aggregated results every 3 seconds
+
 Flink Dashboard:
 http://clu01.softnet.tuc.gr:8081
+⚠️ Verify ALL operators show "Records Sent > 0"
 
 Check services:
 ps aux | grep etl
