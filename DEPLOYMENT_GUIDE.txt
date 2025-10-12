@@ -116,19 +116,16 @@ java -jar etl-file-producer-1.0.0.jar \
     --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
     --kafka.input.topic=etl.input.v1 \
     --producer.mode=random \
-    --producer.rate.per.sec=10 &
+    --producer.rate.per.sec=240 &
 
 Generates realistic data for:
 - 6 sensor types: temperature, pressure, humidity, air_quality, light, noise
 - 8 rooms: room-a, room-b, room-c, room-d, lobby, conference-room, kitchen, server-room
-- 48 messages per cycle (6 × 8)
+- 240 messages/sec × 48 combinations = 11,520 events/sec
 
 ================================================================================
 STEP 7: TEST & MONITOR
 ================================================================================
-
-⚠️ IMPORTANT: Use VERIFICATION_CHECKLIST.txt for complete end-to-end testing
-              It verifies data flows through ALL Flink operators step-by-step
 
 Quick test:
 cd /home/avoutas/boutasThesis
@@ -176,12 +173,12 @@ java -jar etl-api-1.0.0.jar \
     --kafka.config.topic=etl.config.v1 \
     --server.port=8080 &
 
-# Start File Producer
+# Start File Producer (240 msg/sec = 11,520 events/sec)
 java -jar etl-file-producer-1.0.0.jar \
     --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
     --kafka.input.topic=etl.input.v1 \
     --producer.mode=random \
-    --producer.rate.per.sec=10 &
+    --producer.rate.per.sec=240 &
 
 # Test
 curl -X POST http://clu04.softnet.tuc.gr:8080/config \
@@ -297,6 +294,127 @@ VERIFICATION STATUS
 
 Cluster Admin: xenia@softnet.tuc.gr
 Repository: https://github.com/aboutas/etl-flink-project (cluster branch)
+
+================================================================================
+PERFORMANCE TESTING & TUNING
+================================================================================
+
+Once the system is verified working, you can tune performance parameters:
+
+1. CHANGE DATA PRODUCTION RATE (DEFAULT: 240 msg/sec)
+   ─────────────────────────────────────────────────────────────────────────
+
+   Stop current producer:
+   ps aux | grep etl-file-producer
+   kill <PID>
+
+   Start with new rate:
+   cd /home/avoutas/boutasThesis
+   java -jar etl-file-producer-1.0.0.jar \
+       --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+       --kafka.input.topic=etl.input.v1 \
+       --producer.mode=random \
+       --producer.rate.per.sec=240 &
+
+   Produces: 240 messages/sec × 48 sensor combinations = 11,520 events/sec
+
+   Test with higher rates: 500, 1000, 2000 msg/sec
+
+
+2. CHANGE FLINK PARALLELISM (DEFAULT: -p 11)
+   ─────────────────────────────────────────────────────────────────────────
+
+   Cancel current job:
+   cd /usr/local/flink
+   ./bin/flink list
+   ./bin/flink cancel <JOB-ID>
+
+   Submit with different parallelism:
+   ./bin/flink run -p 22 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar \
+       --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+       --kafka.config.topic etl.config.v1 \
+       --kafka.input.topic etl.input.v1 \
+       --kafka.output.topic etl.output.v1
+
+   Parallelism options:
+   -p 11  = 1 task per worker (baseline)
+   -p 22  = 2 tasks per worker (recommended for high load)
+   -p 33  = 3 tasks per worker (maximum, all slots)
+
+   Monitor: http://clu01.softnet.tuc.gr:8081 (check backpressure, latency)
+
+
+3. CHANGE WINDOWING SIZE (DEFAULT: 3 seconds)
+   ─────────────────────────────────────────────────────────────────────────
+
+   Edit source code:
+   File: flink/src/main/java/com/etl/flink/EtlFlinkJob.java
+   Line: ~148
+
+   Current:
+   .window(TumblingProcessingTimeWindows.of(Time.seconds(3)))
+
+   Change to:
+   .window(TumblingProcessingTimeWindows.of(Time.seconds(5)))   // 5 seconds
+   .window(TumblingProcessingTimeWindows.of(Time.seconds(10)))  // 10 seconds
+   .window(TumblingProcessingTimeWindows.of(Time.minutes(1)))   // 1 minute
+
+   Then rebuild and redeploy:
+   cd /home/thanasis/Documents/etl-flink-project
+   mvn clean package -DskipTests
+   scp flink/target/etl-flink-1.0.0.jar avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
+
+   Cancel old job and submit new one with updated JAR
+
+
+4. SUBMIT MULTIPLE CONFIGS FOR LOAD TESTING
+   ─────────────────────────────────────────────────────────────────────────
+
+   Submit all test configs simultaneously:
+   cd /home/avoutas/boutasThesis
+
+   for config in config-*.json; do
+       curl -X POST http://clu04.softnet.tuc.gr:8080/config \
+           -H "Content-Type: application/json" \
+           -d @$config &
+   done
+   wait
+
+   This submits 5 configs in parallel:
+   - config-test123.json
+   - config-cold-humid-rooms.json
+   - config-low-humidity-dates.json
+   - config-air-quality-hot-days.json
+   - config-light-high-humidity.json
+
+   Monitor output (all 5 jobIds should appear):
+   cd /usr/hdp/current/kafka-broker
+   bin/kafka-console-consumer.sh \
+       --bootstrap-server clu02.softnet.tuc.gr:6667 \
+       --topic etl.output.v1 \
+       --from-beginning | grep jobId
+
+   Check Flink metrics:
+   - Dashboard: http://clu01.softnet.tuc.gr:8081
+   - Look for: throughput, latency, backpressure
+   - All operators should show green (no backpressure)
+
+
+RECOMMENDED TEST SCENARIO (HIGH LOAD):
+───────────────────────────────────────────────────────────────────────────
+
+1. Set parallelism to -p 22 (2 tasks per worker)
+2. Set producer rate to 240 msg/sec (or higher)
+3. Keep window size at 3 seconds
+4. Submit all 5 configs simultaneously
+5. Monitor for 5-10 minutes
+6. Check Flink metrics for:
+   - Records processed per second
+   - Average latency
+   - Backpressure (should be LOW or none)
+   - CPU/memory usage on worker nodes
+
+Expected throughput: 11,520+ events/sec with 5 active configs
 
 ================================================================================
 END OF DEPLOYMENT GUIDE
