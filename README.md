@@ -2,7 +2,10 @@
 
 A production-ready real-time ETL (Extract, Transform, Load) system built with Apache Flink that processes sensor data streams with dynamically configurable transformations and TRUE parallelism using CoFlatMap architecture with 3-second windowing.
 
-**Deployed on:** SoftNet Cluster (TUC) with 23 servers, HDP 3.1.0, Flink 1.10.0
+**Deployed on:** SoftNet Cluster (TUC) with 23 servers, HDP 3.1.0, Flink 1.9.3
+**Compiled with:** Java 8, Spring Boot 2.7.18, Kafka 2.4.1
+
+**Status:** ✅ VERIFIED WORKING - Complete end-to-end data flow validated on cluster
 
 ---
 
@@ -16,36 +19,69 @@ A production-ready real-time ETL (Extract, Transform, Load) system built with Ap
 ### Build & Deploy
 
 ```bash
-# 1. Build all JARs
+# 1. Build all JARs (on your VM or local machine)
+cd /path/to/etl-flink-project
+git pull origin cluster
 mvn clean package -DskipTests
 
-# 2. Upload to cluster (replace 'username' with your username)
-scp flink/target/etl-flink-1.0.0.jar username@clu04.softnet.tuc.gr:/home/username/
-scp services/etl-api/target/etl-api-1.0.0.jar username@clu04.softnet.tuc.gr:/home/username/
-scp services/etl-file-producer/target/etl-file-producer-1.0.0.jar username@clu04.softnet.tuc.gr:/home/username/
+# 2. Upload to cluster (replace 'avoutas' with your username)
+scp flink/target/etl-flink-1.0.0.jar avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
+scp services/etl-api/target/etl-api-1.0.0.jar avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
+scp services/etl-file-producer/target/etl-file-producer-1.0.0.jar avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
+scp config-*.json avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
 
 # 3. SSH to cluster
-ssh username@clu04.softnet.tuc.gr
+ssh avoutas@clu04.softnet.tuc.gr
 
-# 4. Submit Flink job via Dashboard
-# Open: http://clu01.softnet.tuc.gr:8081
-# Upload JAR and set parallelism to 11
+# 4. Submit Flink job (command-line arguments required!)
+cd /usr/local/flink/
+./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar \
+    --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.config.topic etl.config.v1 \
+    --kafka.input.topic etl.input.v1 \
+    --kafka.output.topic etl.output.v1
 
-# 5. Start REST API
+# Verify job is RUNNING (not restarting)
+./bin/flink list
+
+# 5. Start ETL API
+cd /home/avoutas/boutasThesis
 java -jar etl-api-1.0.0.jar \
     --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.config.topic=etl.config.v1 \
     --server.port=8080 &
 
-# 6. Start File Producer
+# Wait 10 seconds for API to start
+sleep 10
+
+# 6. Start File Producer (generates random sensor data)
 java -jar etl-file-producer-1.0.0.jar \
     --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.input.topic=etl.input.v1 \
+    --producer.mode=random \
     --producer.rate.per.sec=10 &
 
-# 7. Submit config
+# Wait 10 seconds for producer to start
+sleep 10
+
+# 7. Submit test config
 curl -X POST http://clu04.softnet.tuc.gr:8080/config \
     -H "Content-Type: application/json" \
-    -d @config-test.json
+    -d @config-test123.json
+
+# 8. Monitor output (wait 10-15 seconds for aggregation window)
+cd /usr/hdp/current/kafka-broker
+bin/kafka-console-consumer.sh \
+    --bootstrap-server clu02.softnet.tuc.gr:6667 \
+    --topic etl.output.v1 \
+    --from-beginning
 ```
+
+**Expected Output:**
+- Config confirmation (immediate)
+- Aggregated results every 3 seconds
+
+**Flink Dashboard:** http://clu01.softnet.tuc.gr:8081 (verify all operators show Records > 0)
 
 ---
 
@@ -108,23 +144,26 @@ curl -X POST http://clu04.softnet.tuc.gr:8080/config \
 
 ## 🔧 Configuration
 
-### Environment Variables (Override defaults)
+### Command-Line Arguments (Required for Cluster Deployment)
+
+**IMPORTANT:** Command-line arguments are distributed to all Flink TaskManagers automatically. Environment variables DO NOT work in distributed Flink deployments.
 
 **Flink Job:**
-- `KAFKA_BOOTSTRAP_SERVERS` (default: `kafka:9092`)
-- `CONFIG_TOPIC` (default: `etl.config.v1`)
-- `INPUT_TOPIC` (default: `etl.input.v1`)
-- `OUTPUT_TOPIC` (default: `etl.output.v1`)
+- `--kafka.bootstrap.servers` (default: `clu02.softnet.tuc.gr:6667,...`)
+- `--kafka.config.topic` (default: `etl.config.v1`)
+- `--kafka.input.topic` (default: `etl.input.v1`)
+- `--kafka.output.topic` (default: `etl.output.v1`)
 
 **ETL API:**
-- `KAFKA_BOOTSTRAP_SERVERS`
-- `CONFIG_TOPIC`
+- `--kafka.bootstrap.servers` (required)
+- `--kafka.config.topic` (default: `etl.config.v1`)
+- `--server.port` (default: `8080`)
 
 **File Producer:**
-- `KAFKA_BOOTSTRAP_SERVERS`
-- `INPUT_TOPIC`
-- `DATA_FILE` (path to sensor data JSON)
-- `RATE_PER_SEC` (messages per second)
+- `--kafka.bootstrap.servers` (required)
+- `--kafka.input.topic` (default: `etl.input.v1`)
+- `--producer.mode` (required: `random` or `file`)
+- `--producer.rate.per.sec` (default: `10`)
 
 ### SoftNet Cluster Specifics
 
@@ -229,21 +268,33 @@ bin/kafka-console-consumer.sh \
 
 ### Common Issues
 
-**1. Connection refused to kafka:9092**
-- **Cause:** Default Kafka servers not overridden
-- **Fix:** Set `KAFKA_BOOTSTRAP_SERVERS` or use program arguments
+**1. Flink Job Keeps Restarting / Data Source Shows 0 Records**
+- **Cause:** Command-line arguments not passed when submitting job
+- **Fix:** Use `./bin/flink run` with `--kafka.bootstrap.servers` and other arguments (see Quick Start)
+- **Verify:** Check Flink Dashboard → Exceptions tab for Kafka connection errors
 
-**2. ClassNotFoundException / NoSuchMethodError**
-- **Cause:** Flink version mismatch (1.18.1 vs 1.10.0)
-- **Fix:** Rebuild with Flink 1.10.0 in `pom.xml`
+**2. Java Version Error (class file version 61.0)**
+- **Cause:** JARs compiled with Java 17 but cluster has Java 8
+- **Fix:** All components compiled with Java 8 (Spring Boot 2.7.18)
+- **Verify:** Run `mvn clean package` to rebuild
 
-**3. Topic does not exist**
+**3. Data Source Receives 0 Records Despite Kafka Having Data**
+- **Cause:** Datetime format mismatch - Jackson cannot parse ZonedDateTime with timezone ID
+- **Fix:** File Producer now uses `.toInstant().toString()` for standard ISO-8601 format
+- **Verify:** Check Kafka messages - datetime should be `"2025-10-12T18:44:21Z"`, NOT `"2025-10-12T21:44:21+03:00[Europe/Athens]"`
+
+**4. NullPointerException When Starting with Empty Kafka Topics**
+- **Cause:** Default deserializer can't handle null/empty messages
+- **Fix:** Flink job now uses NullSafeStringSchema with null filters
+- **Verify:** Job should start successfully even with empty topics
+
+**5. Consumer Group Offsets Persist After Topic Recreation**
+- **Cause:** Consumer group offsets stored separately in Kafka
+- **Fix:** Delete consumer group: `bin/kafka-consumer-groups.sh --bootstrap-server clu02.softnet.tuc.gr:6667 --group etl-flink-consumer --delete`
+
+**6. Topic Does Not Exist**
 - **Cause:** Kafka topics not created
 - **Fix:** Run topic creation commands (see Kafka Topics section)
-
-**4. No resources available**
-- **Cause:** Flink cluster full
-- **Fix:** Check http://clu01.softnet.tuc.gr:8081 for available slots
 
 ### Debugging Commands
 
@@ -252,13 +303,35 @@ bin/kafka-console-consumer.sh \
 cd /usr/local/flink
 ./bin/flink list
 
+# Check Flink job metrics (Data Source receiving data?)
+curl -s http://clu01.softnet.tuc.gr:8081/jobs/<JOB-ID>/vertices/<VERTEX-ID>/metrics | grep numRecordsOut
+
+# Check running services
+ps aux | grep etl
+
 # Check Kafka consumer group
 cd /usr/hdp/current/kafka-broker
 bin/kafka-consumer-groups.sh --bootstrap-server clu02.softnet.tuc.gr:6667 \
-    --group etl-data-consumer-v2 --describe
+    --group etl-flink-consumer --describe
 
-# View service logs
-tail -f /home/username/nohup.out
+# Verify datetime format in Kafka (should be ISO-8601 with Z)
+bin/kafka-console-consumer.sh \
+    --bootstrap-server clu02.softnet.tuc.gr:6667 \
+    --topic etl.input.v1 \
+    --offset latest \
+    --partition 0 \
+    --max-messages 2
+
+# Monitor Kafka output topic
+bin/kafka-console-consumer.sh \
+    --bootstrap-server clu02.softnet.tuc.gr:6667 \
+    --topic etl.output.v1 \
+    --from-beginning
+
+# View Flink TaskManager logs
+cd /usr/local/flink/log
+ls -ltr  # Find latest log files
+tail -f flink-*-taskexecutor-*.out
 ```
 
 ---
@@ -300,11 +373,16 @@ etl-flink-project/
 
 ## 📝 Version History
 
-- **v1.0.0** - Initial SoftNet cluster deployment
+- **v1.0.0** - Initial SoftNet cluster deployment (cluster branch)
   - Removed Docker Compose dependencies
   - Changed sink from MongoDB to Kafka
   - Configured for SoftNet cluster (23 nodes, HDP 3.1.0)
   - Parallelism optimized for 11 worker nodes
+  - Downgraded to Java 8 compatibility (Flink 1.9.3, Spring Boot 2.7.18)
+  - Fixed datetime serialization format (ISO-8601 with Z timezone)
+  - Implemented NullSafeStringSchema for empty Kafka topics
+  - Changed configuration from environment variables to command-line arguments
+  - Complete end-to-end verification on SoftNet cluster
 
 ---
 
