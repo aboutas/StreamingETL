@@ -20,7 +20,8 @@ public class SensorEvent {
     private String measurementUnit;
 
     @JsonProperty("datetime")
-    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss'Z'", timezone = "UTC")
+    // Accept any ISO-8601 datetime format (ZonedDateTime, Instant, etc.)
+    // JavaTimeModule handles conversion automatically
     private Instant datetime;
 
     @JsonProperty("location")
