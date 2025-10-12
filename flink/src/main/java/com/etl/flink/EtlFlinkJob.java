@@ -52,6 +52,10 @@ public class EtlFlinkJob {
         Properties kafkaProps = new Properties();
         kafkaProps.setProperty("bootstrap.servers", kafkaBootstrapServers);
         kafkaProps.setProperty("group.id", "etl-flink-consumer");
+        kafkaProps.setProperty("auto.offset.reset", "earliest");
+        kafkaProps.setProperty("enable.auto.commit", "true");
+        kafkaProps.setProperty("session.timeout.ms", "30000");
+        kafkaProps.setProperty("request.timeout.ms", "40000");
 
         // Config Consumer (Flink 1.9.3 API)
         FlinkKafkaConsumer<String> configConsumer = new FlinkKafkaConsumer<>(
