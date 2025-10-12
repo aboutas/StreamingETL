@@ -8,7 +8,9 @@ import com.etl.flink.process.ConfigKeyExtractor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.flink.api.common.functions.MapFunction;
-import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.api.common.serialization.DeserializationSchema;
+import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -66,18 +68,18 @@ public class EtlFlinkJob {
         kafkaProps.setProperty("session.timeout.ms", "30000");
         kafkaProps.setProperty("request.timeout.ms", "40000");
 
-        // Config Consumer (Flink 1.9.3 API)
+        // Config Consumer (Flink 1.9.3 API) - null-safe for empty topics
         FlinkKafkaConsumer<String> configConsumer = new FlinkKafkaConsumer<>(
                 configTopic,
-                new SimpleStringSchema(),
+                new NullSafeStringSchema(),
                 kafkaProps
         );
         configConsumer.setStartFromEarliest();
 
-        // Data Consumer (Flink 1.9.3 API)
+        // Data Consumer (Flink 1.9.3 API) - null-safe for empty topics
         FlinkKafkaConsumer<String> dataConsumer = new FlinkKafkaConsumer<>(
                 inputTopic,
-                new SimpleStringSchema(),
+                new NullSafeStringSchema(),
                 kafkaProps
         );
         dataConsumer.setStartFromEarliest();
@@ -86,6 +88,7 @@ public class EtlFlinkJob {
         DataStream<EtlConfig> configStream = env
                 .addSource(configConsumer)
                 .name("Config Source")
+                .filter(str -> str != null && !str.isEmpty())  // Filter null/empty from deserializer
                 .map(new ConfigDeserializer())
                 .filter(config -> config != null)
                 .keyBy(new ConfigKeyExtractor());
@@ -94,6 +97,7 @@ public class EtlFlinkJob {
         DataStream<SensorEvent> eventStream = env
                 .addSource(dataConsumer)
                 .name("Data Source")
+                .filter(str -> str != null && !str.isEmpty())  // Filter null/empty from deserializer
                 .map(new EventDeserializer())
                 .filter(event -> event != null)
                 .assignTimestampsAndWatermarks(
@@ -159,6 +163,31 @@ public class EtlFlinkJob {
 
         LOG.info("Executing ETL Flink Job");
         env.execute("ETL Flink Job");
+    }
+
+    /**
+     * Null-safe String deserializer for Kafka messages
+     * Returns null for null/empty messages instead of throwing NullPointerException
+     * This allows Flink job to start with empty Kafka topics
+     */
+    public static class NullSafeStringSchema implements DeserializationSchema<String> {
+        @Override
+        public String deserialize(byte[] message) {
+            if (message == null || message.length == 0) {
+                return null;
+            }
+            return new String(message);
+        }
+
+        @Override
+        public boolean isEndOfStream(String nextElement) {
+            return false;
+        }
+
+        @Override
+        public TypeInformation<String> getProducedType() {
+            return Types.STRING;
+        }
     }
 
     public static class ConfigDeserializer implements MapFunction<String, EtlConfig> {
