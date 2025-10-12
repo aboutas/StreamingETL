@@ -10,6 +10,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.functions.AggregateFunction;
+import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingProcessingTimeWindows;
@@ -35,14 +36,22 @@ public class EtlFlinkJob {
     public static void main(String[] args) throws Exception {
         LOG.info("Starting ETL Flink Job - Flink 1.9.3 compatible");
 
+        // Parse command-line parameters (distributed to all TaskManagers)
+        ParameterTool params = ParameterTool.fromArgs(args);
+
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+        // Make parameters globally available to all functions
+        env.getConfig().setGlobalJobParameters(params);
+
         env.enableCheckpointing(30000);
         env.setParallelism(4);
 
-        String kafkaBootstrapServers = getEnvOrDefault("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092");
-        String configTopic = getEnvOrDefault("CONFIG_TOPIC", "etl.config.v1");
-        String inputTopic = getEnvOrDefault("INPUT_TOPIC", "etl.input.v1");
-        String outputTopic = getEnvOrDefault("OUTPUT_TOPIC", "etl.output.v1");
+        // Read configuration from command-line arguments with defaults
+        String kafkaBootstrapServers = params.get("kafka.bootstrap.servers", "clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667");
+        String configTopic = params.get("kafka.config.topic", "etl.config.v1");
+        String inputTopic = params.get("kafka.input.topic", "etl.input.v1");
+        String outputTopic = params.get("kafka.output.topic", "etl.output.v1");
 
         LOG.info("Kafka Bootstrap Servers: {}", kafkaBootstrapServers);
         LOG.info("Config Topic: {}", configTopic);
@@ -150,11 +159,6 @@ public class EtlFlinkJob {
 
         LOG.info("Executing ETL Flink Job");
         env.execute("ETL Flink Job");
-    }
-
-    private static String getEnvOrDefault(String key, String defaultValue) {
-        String value = System.getenv(key);
-        return value != null ? value : defaultValue;
     }
 
     public static class ConfigDeserializer implements MapFunction<String, EtlConfig> {

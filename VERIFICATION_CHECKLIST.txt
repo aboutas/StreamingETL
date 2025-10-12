@@ -16,14 +16,12 @@ STEP 1: DEPLOY FLINK JOB
 ssh avoutas@clu04.softnet.tuc.gr
 cd /usr/local/flink/
 
-# Set environment variables
-export KAFKA_BOOTSTRAP_SERVERS="clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667"
-export CONFIG_TOPIC="etl.config.v1"
-export INPUT_TOPIC="etl.input.v1"
-export OUTPUT_TOPIC="etl.output.v1"
-
-# Submit Flink job
-./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar
+# Submit Flink job with command-line arguments
+./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar \
+    --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.config.topic etl.config.v1 \
+    --kafka.input.topic etl.input.v1 \
+    --kafka.output.topic etl.output.v1
 
 EXPECTED OUTPUT:
 ✓ "Job has been submitted with JobID ..."
@@ -123,7 +121,8 @@ EXPECTED METRICS:
 ⚠️ IF Data Source shows 0 records or FAILED:
 - Job has Kafka connection issues
 - Check Flink logs: /usr/local/flink/log/
-- Verify environment variables were exported before job submission
+- Verify command-line arguments were passed correctly when submitting job
+- Check Flink dashboard "Exceptions" tab for detailed error message
 
 ================================================================================
 STEP 6: SUBMIT TEST CONFIG
@@ -267,7 +266,8 @@ TROUBLESHOOTING SUMMARY
 ================================================================================
 
 PROBLEM: Flink job keeps restarting
-→ Check environment variables were exported before ./bin/flink run
+→ Verify command-line arguments were passed correctly
+→ Check Flink dashboard "Exceptions" tab for detailed error
 → Check Flink logs for Kafka connection errors
 → Verify Kafka brokers are accessible from cluster
 
@@ -303,11 +303,11 @@ ssh avoutas@clu04.softnet.tuc.gr
 
 # 1. Deploy Flink job
 cd /usr/local/flink/
-export KAFKA_BOOTSTRAP_SERVERS="clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667"
-export CONFIG_TOPIC="etl.config.v1"
-export INPUT_TOPIC="etl.input.v1"
-export OUTPUT_TOPIC="etl.output.v1"
-./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar
+./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar \
+    --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.config.topic etl.config.v1 \
+    --kafka.input.topic etl.input.v1 \
+    --kafka.output.topic etl.output.v1
 
 # Wait 10 seconds for job to start
 sleep 10

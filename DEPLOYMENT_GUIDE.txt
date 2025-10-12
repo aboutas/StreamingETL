@@ -72,17 +72,17 @@ STEP 4: DEPLOY FLINK JOB
 ssh avoutas@clu04.softnet.tuc.gr
 cd /usr/local/flink/
 
-# Set environment variables (only for your session)
-export KAFKA_BOOTSTRAP_SERVERS="clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667"
-export CONFIG_TOPIC="etl.config.v1"
-export INPUT_TOPIC="etl.input.v1"
-export OUTPUT_TOPIC="etl.output.v1"
-
-# Submit job
-./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar
+# Submit job with command-line arguments (NO need to export environment variables)
+./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar \
+    --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.config.topic etl.config.v1 \
+    --kafka.input.topic etl.input.v1 \
+    --kafka.output.topic etl.output.v1
 
 # Verify
 ./bin/flink list
+
+Expected: Job shows status "RUNNING" (NOT "RESTARTING")
 
 Troubleshooting:
 If you get permission errors: export FLINK_LOG_DIR=~/flink-logs && mkdir -p ~/flink-logs
@@ -160,11 +160,11 @@ ssh avoutas@clu04.softnet.tuc.gr
 
 # Deploy Flink job
 cd /usr/local/flink/
-export KAFKA_BOOTSTRAP_SERVERS="clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667"
-export CONFIG_TOPIC="etl.config.v1"
-export INPUT_TOPIC="etl.input.v1"
-export OUTPUT_TOPIC="etl.output.v1"
-./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar
+./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar \
+    --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.config.topic etl.config.v1 \
+    --kafka.input.topic etl.input.v1 \
+    --kafka.output.topic etl.output.v1
 
 # Start ETL API
 cd /home/avoutas/boutasThesis
@@ -212,8 +212,10 @@ kill <PID>
 TROUBLESHOOTING
 ================================================================================
 
-Connection refused to kafka:9092
-→ Environment variables not set. Export them before submitting Flink job.
+Job keeps restarting / Data Source shows FAILED
+→ Check Flink dashboard for exceptions: http://clu01.softnet.tuc.gr:8081
+→ Verify command-line arguments were passed correctly
+→ Check TaskManager logs for Kafka connection errors
 
 Permission denied on Flink logs
 → export FLINK_LOG_DIR=~/flink-logs && mkdir -p ~/flink-logs
@@ -248,10 +250,11 @@ done
 IMPORTANT NOTES
 ================================================================================
 
-1. Environment variables (export) only affect YOUR session - safe to use
+1. Kafka configuration passed as command-line arguments (no environment variables needed)
 2. Parallelism -p 11 = one task per worker (optimal)
 3. Producer generates realistic data automatically - no files needed
 4. All JARs compiled with Java 8 for cluster compatibility
+5. Command-line arguments are distributed to all TaskManagers automatically
 
 Cluster Admin: xenia@softnet.tuc.gr
 Repository: https://github.com/aboutas/etl-flink-project (cluster branch)
