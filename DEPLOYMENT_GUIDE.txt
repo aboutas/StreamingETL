@@ -2,7 +2,7 @@
 SOFTNET CLUSTER DEPLOYMENT GUIDE - ETL FLINK PROJECT
 ================================================================================
 
-BRANCH: cluster (for SoftNet Cluster deployment)
+BRANCH: cluster
 USER: avoutas
 CLUSTER: clu04.softnet.tuc.gr
 WORKING DIRECTORY: /home/avoutas/boutasThesis
@@ -11,69 +11,48 @@ WORKING DIRECTORY: /home/avoutas/boutasThesis
 OVERVIEW
 ================================================================================
 
-This project consists of 3 components:
-1. Flink Job (etl-flink-1.0.0.jar) - Processes sensor data with transformations
-2. ETL API Service (etl-api-1.0.0.jar) - REST API to submit configurations
-3. ETL File Producer (etl-file-producer-1.0.0.jar) - Streams sensor data
+3 Components:
+1. Flink Job (etl-flink-1.0.0.jar) - Processes sensor data
+2. ETL API (etl-api-1.0.0.jar) - REST API for configurations
+3. File Producer (etl-file-producer-1.0.0.jar) - Generates sensor data
 
-ARCHITECTURE:
-- Flink Job runs on SoftNet Flink Cluster (clu01 master, 11 workers)
-- Kafka runs on SoftNet (4 brokers: clu02, clu03, clu04, clu06)
-- Spring Boot services run on clu04
+Architecture:
+- Flink Job: SoftNet Cluster (clu01 master, 11 workers)
+- Kafka: 4 brokers (clu02, clu03, clu04, clu06 on port 6667)
+- Services: Run on clu04
 
-KEY CONFIGURATIONS:
-- Java Version: Java 8 (compatible with cluster)
-- Flink Version: 1.9.3 (compatible with cluster's Flink 1.10.0)
-- Spring Boot: 2.7.18 (Java 8 compatible)
-- Kafka: 2.4.1
+Versions:
+- Java 8, Flink 1.9.3, Spring Boot 2.7.18, Kafka 2.4.1
 
 ================================================================================
-PREREQUISITES
+STEP 1: BUILD PROJECT (LOCAL VM)
 ================================================================================
 
-✓ VPN connected to TUC network (if outside TUC)
-✓ SSH access to clu04.softnet.tuc.gr
-✓ JARs built locally (use: mvn clean package -DskipTests)
-✓ Kafka topics created on cluster
-
-================================================================================
-STEP 1: BUILD THE PROJECT (LOCAL MACHINE)
-================================================================================
-
-cd c:\Users\tboutas\MyProjects\etl-flink-project
+cd /home/thanasis/Documents/etl-flink-project
+git pull origin cluster
 mvn clean package -DskipTests
 
-This creates:
-- flink/target/etl-flink-1.0.0.jar (Flink job)
-- services/etl-api/target/etl-api-1.0.0.jar (REST API)
-- services/etl-file-producer/target/etl-file-producer-1.0.0.jar (Producer)
+Creates:
+- flink/target/etl-flink-1.0.0.jar
+- services/etl-api/target/etl-api-1.0.0.jar
+- services/etl-file-producer/target/etl-file-producer-1.0.0.jar
 
 ================================================================================
-STEP 2: UPLOAD FILES TO CLUSTER
+STEP 2: UPLOAD TO CLUSTER
 ================================================================================
 
-2.1 Upload JARs:
-    scp flink/target/etl-flink-1.0.0.jar avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
-    scp services/etl-api/target/etl-api-1.0.0.jar avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
-    scp services/etl-file-producer/target/etl-file-producer-1.0.0.jar avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
-
-2.2 Upload configuration files:
-    scp config-*.json avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
-
-2.3 Upload data files (optional - random mode available):
-    scp data-samples/*.json avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/data/
+scp /home/thanasis/Documents/etl-flink-project/flink/target/etl-flink-1.0.0.jar avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
+scp /home/thanasis/Documents/etl-flink-project/services/etl-api/target/etl-api-1.0.0.jar avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
+scp /home/thanasis/Documents/etl-flink-project/services/etl-file-producer/target/etl-file-producer-1.0.0.jar avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
+scp /home/thanasis/Documents/etl-flink-project/config-*.json avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
 
 ================================================================================
-STEP 3: CREATE KAFKA TOPICS
+STEP 3: CREATE KAFKA TOPICS (FIRST TIME ONLY)
 ================================================================================
 
-SSH to cluster:
 ssh avoutas@clu04.softnet.tuc.gr
-
-Navigate to Kafka:
 cd /usr/hdp/current/kafka-broker
 
-Create topics:
 bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
     --replication-factor 2 --partitions 4 --topic etl.input.v1
 
@@ -83,125 +62,177 @@ bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
 bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
     --replication-factor 2 --partitions 4 --topic etl.output.v1
 
-Verify topics:
+Verify:
 bin/kafka-topics.sh --list --zookeeper clu01.softnet.tuc.gr:2182
 
 ================================================================================
 STEP 4: DEPLOY FLINK JOB
 ================================================================================
 
-4.1 SSH to cluster:
-    ssh avoutas@clu04.softnet.tuc.gr
+ssh avoutas@clu04.softnet.tuc.gr
+cd /usr/local/flink/
 
-4.2 Navigate to Flink:
-    cd /usr/local/flink/
+# Set environment variables (only for your session)
+export KAFKA_BOOTSTRAP_SERVERS="clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667"
+export CONFIG_TOPIC="etl.config.v1"
+export INPUT_TOPIC="etl.input.v1"
+export OUTPUT_TOPIC="etl.output.v1"
 
-4.3 Set environment variables (CRITICAL):
-    export KAFKA_BOOTSTRAP_SERVERS="clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667"
-    export CONFIG_TOPIC="etl.config.v1"
-    export INPUT_TOPIC="etl.input.v1"
-    export OUTPUT_TOPIC="etl.output.v1"
+# Submit job
+./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar
 
-4.4 Submit Flink job:
-    ./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar
+# Verify
+./bin/flink list
 
-    Flags:
-    -p 11  = Parallelism 11 (one task per worker)
-    -d     = Detached mode (runs in background)
-
-4.5 Verify job is running:
-    ./bin/flink list
-
-    OR check Flink Dashboard: http://clu01.softnet.tuc.gr:8081
-
-TROUBLESHOOTING:
-- If you get permission errors on logs:
-  export FLINK_LOG_DIR=~/flink-logs
-  mkdir -p ~/flink-logs
+Troubleshooting:
+If you get permission errors: export FLINK_LOG_DIR=~/flink-logs && mkdir -p ~/flink-logs
 
 ================================================================================
-STEP 5: START ETL API SERVICE
+STEP 5: START ETL API
 ================================================================================
 
-5.1 Navigate to project directory:
-    cd /home/avoutas/boutasThesis
+cd /home/avoutas/boutasThesis
 
-5.2 Start ETL API:
-    java -jar etl-api-1.0.0.jar \
-        --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
-        --kafka.config.topic=etl.config.v1 \
-        --server.port=8080 &
+java -jar etl-api-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.config.topic=etl.config.v1 \
+    --server.port=8080 &
 
-5.3 Test API is running:
-    curl http://clu04.softnet.tuc.gr:8080/actuator/health
+Wait 10 seconds, then test:
+curl -X POST http://clu04.softnet.tuc.gr:8080/config \
+    -H "Content-Type: application/json" \
+    -d @config-test123.json
 
-    Expected response: {"status":"UP"}
-
-5.4 View logs:
-    tail -f nohup.out
+Expected: {"jobId":"test123","status":"REGISTERED",...}
 
 ================================================================================
-STEP 6: START FILE PRODUCER SERVICE
+STEP 6: START FILE PRODUCER
 ================================================================================
 
-6.1 Start File Producer:
+java -jar etl-file-producer-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.input.topic=etl.input.v1 \
+    --producer.mode=random \
+    --producer.rate.per.sec=10 &
 
-    OPTION A - Random Data Mode (Recommended for testing):
-    java -jar etl-file-producer-1.0.0.jar \
-        --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
-        --kafka.input.topic=etl.input.v1 \
-        --producer.mode=random \
-        --producer.rate.per.sec=10 &
-
-    OPTION B - File Mode (if you have data files):
-    java -jar etl-file-producer-1.0.0.jar \
-        --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
-        --kafka.input.topic=etl.input.v1 \
-        --producer.data.file=/home/avoutas/boutasThesis/data/sensors.json \
-        --producer.rate.per.sec=10 &
-
-6.2 View logs:
-    tail -f nohup.out
+Generates realistic data for:
+- 6 sensor types: temperature, pressure, humidity, air_quality, light, noise
+- 8 rooms: room-a, room-b, room-c, room-d, lobby, conference-room, kitchen, server-room
+- 48 messages per cycle (6 × 8)
 
 ================================================================================
-STEP 7: TEST THE SYSTEM
+STEP 7: TEST & MONITOR
 ================================================================================
 
-7.1 Submit a test configuration:
-    cd /home/avoutas/boutasThesis
+Submit test configs:
+cd /home/avoutas/boutasThesis
 
-    curl -X POST http://clu04.softnet.tuc.gr:8080/config \
-        -H "Content-Type: application/json" \
-        -d @config-test123.json
+curl -X POST http://clu04.softnet.tuc.gr:8080/config \
+    -H "Content-Type: application/json" \
+    -d @config-test123.json
 
-    Expected response: {"jobId":"test123","status":"REGISTERED",...}
+curl -X POST http://clu04.softnet.tuc.gr:8080/config \
+    -H "Content-Type: application/json" \
+    -d @config-cold-humid-rooms.json
 
-7.2 Check Kafka output topic for results:
-    cd /usr/hdp/current/kafka-broker
+Monitor Kafka output:
+cd /usr/hdp/current/kafka-broker
+bin/kafka-console-consumer.sh \
+    --bootstrap-server clu02.softnet.tuc.gr:6667 \
+    --topic etl.output.v1 \
+    --from-beginning
 
-    bin/kafka-console-consumer.sh \
-        --bootstrap-server clu02.softnet.tuc.gr:6667 \
-        --topic etl.output.v1 \
-        --from-beginning
+Flink Dashboard:
+http://clu01.softnet.tuc.gr:8081
 
-7.3 Monitor Flink job:
-    http://clu01.softnet.tuc.gr:8081
-
-7.4 Check all services are running:
-    ps aux | grep etl
+Check services:
+ps aux | grep etl
 
 ================================================================================
-TEST SCENARIOS
+QUICK START (COPY-PASTE ALL)
 ================================================================================
 
-Available test configurations:
+ssh avoutas@clu04.softnet.tuc.gr
+
+# Deploy Flink job
+cd /usr/local/flink/
+export KAFKA_BOOTSTRAP_SERVERS="clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667"
+export CONFIG_TOPIC="etl.config.v1"
+export INPUT_TOPIC="etl.input.v1"
+export OUTPUT_TOPIC="etl.output.v1"
+./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar
+
+# Start ETL API
+cd /home/avoutas/boutasThesis
+java -jar etl-api-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.config.topic=etl.config.v1 \
+    --server.port=8080 &
+
+# Start File Producer
+java -jar etl-file-producer-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.input.topic=etl.input.v1 \
+    --producer.mode=random \
+    --producer.rate.per.sec=10 &
+
+# Test
+curl -X POST http://clu04.softnet.tuc.gr:8080/config \
+    -H "Content-Type: application/json" \
+    -d @config-test123.json
+
+# Monitor
+cd /usr/hdp/current/kafka-broker
+bin/kafka-console-consumer.sh \
+    --bootstrap-server clu02.softnet.tuc.gr:6667 \
+    --topic etl.output.v1 \
+    --from-beginning
+
+================================================================================
+STOP SERVICES
+================================================================================
+
+# Stop Flink job
+cd /usr/local/flink
+./bin/flink list
+./bin/flink cancel <JOB-ID>
+
+# Stop Spring Boot services
+ps aux | grep etl-api
+kill <PID>
+
+ps aux | grep etl-file-producer
+kill <PID>
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Connection refused to kafka:9092
+→ Environment variables not set. Export them before submitting Flink job.
+
+Permission denied on Flink logs
+→ export FLINK_LOG_DIR=~/flink-logs && mkdir -p ~/flink-logs
+
+API not responding
+→ Check: ps aux | grep etl-api
+→ Check: netstat -tuln | grep 8080
+
+No output in Kafka
+→ Check Flink job: ./bin/flink list
+→ Check producer: ps aux | grep etl-file-producer
+
+================================================================================
+TEST CONFIGURATIONS
+================================================================================
+
 1. config-test123.json - Basic filter + aggregation
 2. config-cold-humid-rooms.json - Multiple filters
 3. config-low-humidity-dates.json - Complex temporal tracking
 4. config-air-quality-hot-days.json - Air quality analysis
 5. config-light-high-humidity.json - Multi-sensor correlation
 
-Submit multiple configs:
+Submit all:
 for config in config-*.json; do
     curl -X POST http://clu04.softnet.tuc.gr:8080/config \
         -H "Content-Type: application/json" \
@@ -210,150 +241,16 @@ for config in config-*.json; do
 done
 
 ================================================================================
-MONITORING & DEBUGGING
-================================================================================
-
-Flink Dashboard:
-http://clu01.softnet.tuc.gr:8081
-
-YARN Resource Manager:
-http://clu01.softnet.tuc.gr:8189/ui2/#/yarn-apps/apps
-
-Check Kafka consumer group:
-cd /usr/hdp/current/kafka-broker
-bin/kafka-consumer-groups.sh \
-    --bootstrap-server clu02.softnet.tuc.gr:6667 \
-    --group etl-flink-consumer --describe
-
-View Kafka topics:
-bin/kafka-console-consumer.sh \
-    --bootstrap-server clu02.softnet.tuc.gr:6667 \
-    --topic etl.input.v1 --from-beginning --max-messages 10
-
-bin/kafka-console-consumer.sh \
-    --bootstrap-server clu02.softnet.tuc.gr:6667 \
-    --topic etl.config.v1 --from-beginning --max-messages 10
-
-bin/kafka-console-consumer.sh \
-    --bootstrap-server clu02.softnet.tuc.gr:6667 \
-    --topic etl.output.v1 --from-beginning
-
-================================================================================
-CLEANUP & STOP SERVICES
-================================================================================
-
-1. Stop Flink job:
-   cd /usr/local/flink
-   ./bin/flink list
-   ./bin/flink cancel <JOB-ID>
-
-2. Stop Spring Boot services:
-   ps aux | grep etl-api
-   kill <PID>
-
-   ps aux | grep etl-file-producer
-   kill <PID>
-
-3. Delete Kafka topics (if needed):
-   cd /usr/hdp/current/kafka-broker
-   bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.input.v1
-   bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.config.v1
-   bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.output.v1
-
-================================================================================
-QUICK START SCRIPT
-================================================================================
-
-Copy and paste this entire block for quick deployment:
-
-# 1. SSH to cluster
-ssh avoutas@clu04.softnet.tuc.gr
-
-# 2. Deploy Flink job
-cd /usr/local/flink/
-export KAFKA_BOOTSTRAP_SERVERS="clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667"
-export CONFIG_TOPIC="etl.config.v1"
-export INPUT_TOPIC="etl.input.v1"
-export OUTPUT_TOPIC="etl.output.v1"
-./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar
-
-# 3. Start ETL API
-cd /home/avoutas/boutasThesis
-java -jar etl-api-1.0.0.jar \
-    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
-    --kafka.config.topic=etl.config.v1 \
-    --server.port=8080 &
-
-# 4. Start File Producer (random mode)
-java -jar etl-file-producer-1.0.0.jar \
-    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
-    --kafka.input.topic=etl.input.v1 \
-    --producer.mode=random \
-    --producer.rate.per.sec=10 &
-
-# 5. Test with a config
-curl -X POST http://clu04.softnet.tuc.gr:8080/config \
-    -H "Content-Type: application/json" \
-    -d @config-test123.json
-
-# 6. Monitor output
-cd /usr/hdp/current/kafka-broker
-bin/kafka-console-consumer.sh \
-    --bootstrap-server clu02.softnet.tuc.gr:6667 \
-    --topic etl.output.v1 \
-    --from-beginning
-
-================================================================================
 IMPORTANT NOTES
 ================================================================================
 
-1. JAVA VERSION: All JARs compiled with Java 8 for cluster compatibility
+1. Environment variables (export) only affect YOUR session - safe to use
+2. Parallelism -p 11 = one task per worker (optimal)
+3. Producer generates realistic data automatically - no files needed
+4. All JARs compiled with Java 8 for cluster compatibility
 
-2. ENVIRONMENT VARIABLES: The Flink job reads configuration from environment
-   variables (System.getenv). You MUST export them before submitting the job.
-
-3. KAFKA BROKERS:
-   clu02.softnet.tuc.gr:6667
-   clu03.softnet.tuc.gr:6667
-   clu04.softnet.tuc.gr:6667
-   clu06.softnet.tuc.gr:6667
-
-4. PARALLELISM: Set to 11 (one task per worker) for optimal performance.
-   Can be adjusted: -p 22 (two per worker) or -p 33 (all slots)
-
-5. DATA GENERATION: File Producer has two modes:
-   - random: Generates realistic sensor data (all sensor types, all rooms)
-   - file: Reads from JSON file
-
-6. TESTING: Submit multiple configurations simultaneously - they run in parallel
-
-================================================================================
-TROUBLESHOOTING
-================================================================================
-
-Issue: "Connection refused to kafka:9092"
-Fix: Environment variables not set. Export them before submitting Flink job.
-
-Issue: "Permission denied" on Flink logs
-Fix: export FLINK_LOG_DIR=~/flink-logs && mkdir -p ~/flink-logs
-
-Issue: Java version mismatch (class file version 61.0)
-Fix: Rebuild project with: mvn clean package -DskipTests (already Java 8)
-
-Issue: No output in Kafka
-Fix: Check Flink job is running (./bin/flink list) and producer is sending data
-
-Issue: API not responding
-Fix: Check if port 8080 is free: netstat -tuln | grep 8080
-
-================================================================================
-CONTACT & SUPPORT
-================================================================================
-
-SoftNet Cluster Admin: xenia@softnet.tuc.gr
-Cluster Access: https://softnet.tuc.gr
-
-Project Repository: https://github.com/tboutas/etl-flink-project (cluster branch)
+Cluster Admin: xenia@softnet.tuc.gr
+Repository: https://github.com/aboutas/etl-flink-project (cluster branch)
 
 ================================================================================
 END OF DEPLOYMENT GUIDE
