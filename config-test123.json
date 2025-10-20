@@ -5,7 +5,7 @@
     {
       "type": "filter_greater",
       "params": {
-        "sensor": "humidity",
+        "sensor": "temperature",
         "field": "measurement",
         "threshold": 70
       }

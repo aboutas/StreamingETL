@@ -221,7 +221,7 @@ public class FileProducerService {
 
     private String[] generateComprehensiveSensorData() {
         try {
-            String timestamp = ZonedDateTime.now(GREEK_TIMEZONE).truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
+            String timestamp = ZonedDateTime.now(GREEK_TIMEZONE).toInstant().toString();
             String[] allData = new String[locations.length * sensorTypes.length]; // 8 rooms * 6 sensors = 48 messages
             int index = 0;
 
@@ -526,7 +526,7 @@ public class FileProducerService {
         try {
             String sensorType = sensorTypes[random.nextInt(sensorTypes.length)];
             String location = locations[random.nextInt(locations.length)];
-            String timestamp = ZonedDateTime.now(GREEK_TIMEZONE).truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
+            String timestamp = ZonedDateTime.now(GREEK_TIMEZONE).toInstant().toString();
 
             double measurement;
             String unit;

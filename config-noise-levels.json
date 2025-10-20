@@ -1,13 +1,13 @@
 {
-  "jobId": "air-quality-hot-days",
+  "jobId": "noise-levels",
   "source": "kafka://etl.input.v1",
   "transformations": [
     {
       "type": "filter_greater",
       "params": {
-        "sensor": "air_quality",
+        "sensor": "noise",
         "field": "measurement",
-        "threshold": 100.0
+        "threshold": 60.0
       }
     },
     {
@@ -15,7 +15,7 @@
       "keyBy": "location",
       "params": {
         "field": "measurement",
-        "sensor": "air_quality"
+        "sensor": "noise"
       }
     }
   ]

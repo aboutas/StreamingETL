@@ -1,5 +1,6 @@
 package com.etl.flink;
 
+import com.etl.flink.deserializer.SafeStringDeserializer;
 import com.etl.flink.model.EtlConfig;
 import com.etl.flink.model.EtlResult;
 import com.etl.flink.model.SensorEvent;
@@ -67,15 +68,15 @@ public class EtlFlinkJob {
                 .setTopics(configTopic)
                 .setGroupId("etl-config-consumer")
                 .setStartingOffsets(OffsetsInitializer.earliest())
-                .setValueOnlyDeserializer(new SimpleStringSchema())
+                .setValueOnlyDeserializer(new SafeStringDeserializer())
                 .build();
 
         KafkaSource<String> dataSource = KafkaSource.<String>builder()
                 .setBootstrapServers(kafkaBootstrapServers)
                 .setTopics(inputTopic)
-                .setGroupId("etl-data-consumer-v2")
-                .setStartingOffsets(OffsetsInitializer.earliest())
-                .setValueOnlyDeserializer(new SimpleStringSchema())
+                .setGroupId("etl-data-consumer-v4")
+                .setStartingOffsets(OffsetsInitializer.latest())
+                .setValueOnlyDeserializer(new SafeStringDeserializer())
                 .build();
 
         // Create configuration stream - keyed by same field as data stream for TRUE CoFlatMap
@@ -94,7 +95,10 @@ public class EtlFlinkJob {
                                         ObjectMapper mapper = new ObjectMapper();
                                         mapper.registerModule(new JavaTimeModule());
                                         SensorEvent sensorEvent = mapper.readValue(event, SensorEvent.class);
-                                        return sensorEvent.getDatetime().toEpochMilli();
+                                        if (sensorEvent != null && sensorEvent.getDatetime() != null) {
+                                            return sensorEvent.getDatetime().toEpochMilli();
+                                        }
+                                        return ZonedDateTime.now(GREEK_TIMEZONE).toInstant().toEpochMilli();
                                     } catch (Exception e) {
                                         LOG.warn("Failed to extract timestamp from event: {}", event, e);
                                         return ZonedDateTime.now(GREEK_TIMEZONE).toInstant().toEpochMilli();
@@ -103,7 +107,7 @@ public class EtlFlinkJob {
                         "Data Source")
                 .map(new EventDeserializer())
                 .filter(event -> event != null)
-                .keyBy(event -> "universal"); // Key by universal - matches config routing
+                .keyBy(event -> event.getSensor() != null ? event.getSensor() : "universal"); // Key by sensor type for parallelism
 
         // TRUE CoFlatMap: Both streams keyed by same field for optimal distribution
         DataStream<EtlResult> processedStream = configStream
