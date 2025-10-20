@@ -5,9 +5,9 @@
     {
       "type": "filter_greater",
       "params": {
-        "sensor": "humidity",
+        "sensor": "light",
         "field": "measurement",
-        "threshold": 60.0
+        "threshold": 500.0
       }
     },
     {

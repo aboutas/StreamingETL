@@ -3,14 +3,6 @@
   "source": "kafka://etl.input.v1",
   "transformations": [
     {
-      "type": "filter_less",
-      "params": {
-        "sensor": "temperature",
-        "field": "measurement",
-        "threshold": 20.0
-      }
-    },
-    {
       "type": "filter_greater",
       "params": {
         "sensor": "humidity",

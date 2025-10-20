@@ -5,9 +5,9 @@
     {
       "type": "filter_greater",
       "params": {
-        "sensor": "temperature",
+        "sensor": "air_quality",
         "field": "measurement",
-        "threshold": 25.0
+        "threshold": 100.0
       }
     },
     {
