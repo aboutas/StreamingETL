@@ -1,0 +1,22 @@
+{
+  "jobId": "normalize-humidity-example",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "normalize",
+      "params": {
+        "field": "measurement",
+        "min": 0.0,
+        "max": 100.0
+      }
+    },
+    {
+      "type": "avg",
+      "keyBy": "location",
+      "params": {
+        "field": "measurement",
+        "sensor": "humidity"
+      }
+    }
+  ]
+}

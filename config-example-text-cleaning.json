@@ -1,0 +1,26 @@
+{
+  "jobId": "text-cleaning-example",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "trim_whitespace",
+      "params": {
+        "field": "location"
+      }
+    },
+    {
+      "type": "to_lowercase",
+      "params": {
+        "field": "location"
+      }
+    },
+    {
+      "type": "max",
+      "keyBy": "location",
+      "params": {
+        "field": "measurement",
+        "sensor": "temperature"
+      }
+    }
+  ]
+}

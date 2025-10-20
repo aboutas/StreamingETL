@@ -113,7 +113,7 @@ public class EtlFlinkJob {
                             }
                         }
                 )
-                .keyBy(event -> "universal");
+                .keyBy(event -> event.getSensor());
 
         // CoFlatMap processing
         DataStream<EtlResult> processedStream = configStream
