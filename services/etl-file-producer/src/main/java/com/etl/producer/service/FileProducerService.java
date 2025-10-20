@@ -53,6 +53,9 @@ public class FileProducerService {
     @Value("${producer.mode:file}")
     private String producerMode; // "file" or "random"
 
+    @Value("${producer.max.records:-1}")
+    private long maxRecords; // -1 = unlimited, >0 = stop after N records
+
     private KafkaProducer<String, String> kafkaProducer;
     private ObjectMapper objectMapper;
     private final AtomicBoolean running = new AtomicBoolean(true);
@@ -92,6 +95,7 @@ public class FileProducerService {
         LOG.info("Loop enabled: {}", loopEnabled);
         LOG.info("Default Job ID: {}", defaultJobId);
         LOG.info("Producer mode: {}", producerMode);
+        LOG.info("Max records: {}", maxRecords == -1 ? "unlimited" : maxRecords);
     }
 
     private void startFileProduction() {
@@ -114,6 +118,13 @@ public class FileProducerService {
                         String line;
 
                         while ((line = reader.readLine()) != null && running.get()) {
+                            // Check if max records limit reached
+                            if (maxRecords > 0 && messageCount >= maxRecords) {
+                                LOG.info("Reached max records limit: {}. Stopping producer.", maxRecords);
+                                running.set(false);
+                                break;
+                            }
+
                             if (line.trim().isEmpty()) {
                                 continue;
                             }
@@ -157,9 +168,13 @@ public class FileProducerService {
                         Thread.sleep(5000);
                     }
 
-                } while (loopEnabled && running.get());
+                } while (loopEnabled && running.get() && (maxRecords == -1 || messageCount < maxRecords));
 
-                LOG.info("File production completed. Total messages sent: {}", messageCount);
+                if (maxRecords > 0 && messageCount >= maxRecords) {
+                    LOG.info("✅ File production COMPLETED. Sent exactly {} records (max limit reached).", messageCount);
+                } else {
+                    LOG.info("File production completed. Total messages sent: {}", messageCount);
+                }
 
             } catch (Exception e) {
                 LOG.error("Fatal error in file production", e);
@@ -177,8 +192,15 @@ public class FileProducerService {
                 long intervalMs = 1000L / ratePerSec;
                 long messageCount = 0;
 
-                while (running.get()) {
+                while (running.get() && (maxRecords == -1 || messageCount < maxRecords)) {
                     try {
+                        // Check if max records limit reached
+                        if (maxRecords > 0 && messageCount >= maxRecords) {
+                            LOG.info("Reached max records limit: {}. Stopping producer.", maxRecords);
+                            running.set(false);
+                            break;
+                        }
+
                         // Generate comprehensive sensor data (all sensor types for all rooms)
                         String[] allSensorData = generateComprehensiveSensorData();
 
@@ -211,7 +233,11 @@ public class FileProducerService {
                     }
                 }
 
-                LOG.info("Comprehensive data production completed. Total messages sent: {}", messageCount);
+                if (maxRecords > 0 && messageCount >= maxRecords) {
+                    LOG.info("✅ Random data production COMPLETED. Sent exactly {} records (max limit reached).", messageCount);
+                } else {
+                    LOG.info("Comprehensive data production completed. Total messages sent: {}", messageCount);
+                }
 
             } catch (Exception e) {
                 LOG.error("Fatal error in comprehensive data production", e);
