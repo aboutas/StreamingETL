@@ -192,7 +192,12 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
     }
 
     private boolean isElementTransformation(String type) {
-        return "filter_greater".equals(type) || "filter_less".equals(type) || "filter_cross_field".equals(type);
+        return "filter_greater".equals(type) ||
+               "filter_less".equals(type) ||
+               "filter_cross_field".equals(type) ||
+               "normalize".equals(type) ||
+               "to_lowercase".equals(type) ||
+               "trim_whitespace".equals(type);
     }
 
     private boolean isAggregationTransformation(String type) {

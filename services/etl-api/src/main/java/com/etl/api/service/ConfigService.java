@@ -23,10 +23,11 @@ public class ConfigService {
     private static final Logger LOG = LoggerFactory.getLogger(ConfigService.class);
 
     private static final List<String> VALID_TRANSFORMATIONS = Arrays.asList(
-            "normalize_string", "lowercase", "uppercase",
-            "filter_greater", "filter_less",
-            "extract_year", "extract_month", "extract_day",
-            "sum", "max", "min"
+            // Element transformations (filters and data cleaning)
+            "filter_greater", "filter_less", "filter_cross_field",
+            "normalize", "to_lowercase", "trim_whitespace",
+            // Aggregation transformations
+            "sum", "max", "min", "avg"
     );
 
     @Value("${kafka.bootstrap.servers:kafka:9092}")
