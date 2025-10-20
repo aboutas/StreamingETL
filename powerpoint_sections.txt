@@ -1,0 +1,148 @@
+================================================================================
+POWERPOINT SECTIONS - FLINK OPERATORS
+================================================================================
+
+---
+SECTION: CoFlatMap - Multi-Configuration Processing
+---
+
+CoFlatMap: Dynamic Multi-Configuration Processing
+
+•    TWO Connected Streams → Multiple Processing Jobs
+     - Config Stream: ETL configurations from Kafka (etl.config.v1)
+     - Data Stream: Sensor events from Kafka (etl.input.v1)
+
+•    Key Architecture Pattern: "Universal" Keying
+     - Both streams keyed by "universal" → Co-located in same subtask
+     - Ensures ALL configs and ALL events meet in same parallel instance
+     - Enables cross-configuration processing
+
+•    CoFlatMapProcessor Features:
+     - flatMap1(): Receives configs → Stores in MapState by jobId
+     - flatMap2(): Receives sensor events → Processes against ALL stored configs
+     - MapState stores unlimited configurations (no limit on active jobs)
+     - ONE sensor event → Processed by EVERY active configuration
+     - ONE input event → MULTIPLE output results (one per matching config)
+
+•    Real-World Example:
+     - Same temperature reading (25.5°C from room-a)
+     - Processed by job-1: "filter high temps > 24°C"
+     - Processed by job-2: "calculate average temp by location"
+     - Processed by job-3: "monitor all sensors"
+     - Result: 3 different outputs from 1 sensor event
+
+•    Proof of Multi-Configuration Processing:
+     - ETL results show same timestamp
+     - Same sensor data (e.g., temperature=25.5, location=room-a)
+     - Multiple jobIds in output (job-1, job-2, job-3)
+     - Different transformations applied per config
+     - Parallel business logic execution on shared data
+
+•    Why This Matters:
+     - Dynamic configuration without restarting Flink job
+     - Multiple teams can run different ETL jobs on same data stream
+     - Add/modify processing logic at runtime via REST API
+     - Efficient resource usage (one data stream, many processors)
+
+================================================================================
+
+---
+SECTION: Windowing - Time-Based Aggregations
+---
+
+Windowing: Time-Based Stream Aggregations
+
+•    Purpose: Group streaming data into time windows for aggregation
+     - Real-time metrics: Calculate sum, avg, max, min over time periods
+     - Converts infinite stream → finite batches for aggregation
+     - Essential for time-series analysis and monitoring
+
+•    Window Type: Tumbling Processing-Time Windows
+     - Size: 3 seconds (configurable)
+     - Non-overlapping: Each event belongs to exactly one window
+     - Processing time: Based on system clock when event is processed
+     - New window opens every 3 seconds
+
+•    What Gets Windowed:
+     - Only results requiring aggregation (sum/avg/max/min)
+     - Results from CoFlatMap with aggregationType != null
+     - Filtered sensor data that passed transformations
+     - Example: temperature readings for MAX calculation
+
+•    Window Keying Strategy:
+     - Key format: "groupingKey|jobId|aggregationType"
+     - Example: "room-a|job-123|max" or "temperature|job-456|avg"
+     - Separate window per: location AND job AND operation
+     - Enables parallel windowing across dimensions
+
+•    WindowAggregator Implementation:
+     - createAccumulator(): Initialize counters (sum=0, count=0, max=-∞, min=+∞)
+     - add(): Accumulate each value in current window
+           * Update sum, count, max, min
+           * Track metadata (jobId, sensor type, location)
+     - getResult(): Compute final aggregation when window closes
+           * SUM: total of all values
+           * AVG: sum / count
+           * MAX: highest value seen
+           * MIN: lowest value seen
+     - merge(): Combine results from parallel subtasks
+
+•    Window Lifecycle Example (3-second window):
+     - t=0.0s: Window opens
+     - t=0.5s: temperature=24.5 arrives → accumulate (count=1, sum=24.5, max=24.5, min=24.5)
+     - t=1.2s: temperature=25.3 arrives → accumulate (count=2, sum=49.8, max=25.3, min=24.5)
+     - t=2.8s: temperature=23.7 arrives → accumulate (count=3, sum=73.5, max=25.3, min=23.7)
+     - t=3.0s: Window closes → emit result
+           * For AVG: 73.5/3 = 24.5°C
+           * For MAX: 25.3°C
+           * For MIN: 23.7°C
+     - t=3.0s: New window opens (process repeats)
+
+•    Output Stream:
+     - One aggregated result per window per key
+     - Every 3 seconds (continuous stream of aggregations)
+     - Contains: jobId, aggregationType, groupingKey, computed value, timestamp
+     - Example output every 3 seconds:
+           {"jobId":"job-123", "aggregationType":"max", "groupingKey":"room-a", "result":25.3, "count":3}
+
+•    Stream Split After Windowing:
+     - Non-aggregated results → Direct to output (immediate, no windowing)
+     - Aggregated results → Through windowing → Output (every 3 seconds)
+     - Union both streams → Single output topic (etl.output.v1)
+
+•    Why 3-Second Windows:
+     - Balance between latency and completeness
+     - Fast enough for real-time monitoring (sub-second alerts not needed)
+     - Large enough to accumulate meaningful data points
+     - Reduces output volume (vs per-event output)
+     - Configurable in code: TumblingProcessingTimeWindows.of(Time.seconds(3))
+
+•    Performance Characteristics:
+     - Parallelism: Each key processed independently
+     - State: Window state stored in Flink's managed state
+     - Checkpointing: Window contents included in checkpoints (fault tolerance)
+     - Backpressure: Handles high-throughput (tested at 11,520 events/sec)
+     - Latency: ~3 seconds (window size) + processing time (~50ms)
+
+================================================================================
+NOTES FOR PRESENTATION
+================================================================================
+
+Key Differences to Emphasize:
+1. CoFlatMap = Dynamic configuration management (runtime logic changes)
+2. Windowing = Time-based aggregations (temporal data analysis)
+
+Visual Aids to Include:
+- CoFlatMap: Diagram showing 1 sensor event branching to 3+ configs
+- Windowing: Timeline showing 3-second windows with events accumulating
+
+Proof Points from Your Deployment:
+- CoFlatMap: Show Kafka output with multiple jobIds for same timestamp
+- Windowing: Show aggregated results appearing every 3 seconds with count > 1
+
+Technical Depth Adjustments:
+- For technical audience: Include code references (CoFlatMapProcessor.java lines 67-92, EtlFlinkJob.java lines 142-149)
+- For business audience: Focus on "dynamic configuration" and "real-time metrics"
+- For professors: Emphasize stateful processing, keyed streams, and fault tolerance
+
+================================================================================
