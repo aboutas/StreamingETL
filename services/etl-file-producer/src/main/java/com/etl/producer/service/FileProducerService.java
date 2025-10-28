@@ -328,34 +328,65 @@ public class FileProducerService {
     }
 
     private double generateRealisticTemperature(String location) {
-        // Base temperature ranges by location type
-        double baseTemp;
-        double variation;
+        // Real-world temperature ranges: -30°C (extreme winter) to 70°C (extreme heat)
+        // Distribution: Most readings normal indoor (15-30°C), some extremes
 
-        switch (location) {
-            case "server-room":
-                baseTemp = 22.0; // Cooler for servers
-                variation = 3.0;
-                break;
-            case "kitchen":
-                baseTemp = 26.0; // Warmer from cooking
-                variation = 8.0;
-                break;
-            case "lobby":
-                baseTemp = 21.0; // Standard office temperature
-                variation = 4.0;
-                break;
-            case "conference-room":
-                baseTemp = 23.0; // Slightly warmer with people
-                variation = 5.0;
-                break;
-            default: // regular rooms
-                baseTemp = 22.0;
-                variation = 6.0;
+        double temp;
+        double rand = random.nextDouble();
+
+        // 60% normal indoor temperatures (15-30°C)
+        // 20% cold/winter temperatures (-10 to 15°C)
+        // 15% hot/summer temperatures (30-50°C)
+        // 5% extreme temperatures (-30 to -10°C or 50-70°C)
+
+        if (rand < 0.60) {
+            // Normal indoor range with location-based variations
+            double baseTemp;
+            double variation;
+
+            switch (location) {
+                case "server-room":
+                    baseTemp = 20.0; // Cooler for servers
+                    variation = 3.0;
+                    break;
+                case "kitchen":
+                    baseTemp = 26.0; // Warmer from cooking
+                    variation = 4.0;
+                    break;
+                case "lobby":
+                    baseTemp = 21.0; // Standard office temperature
+                    variation = 3.0;
+                    break;
+                case "conference-room":
+                    baseTemp = 24.0; // Slightly warmer with people
+                    variation = 3.0;
+                    break;
+                default: // regular rooms
+                    baseTemp = 22.0;
+                    variation = 4.0;
+            }
+            temp = baseTemp + (random.nextGaussian() * variation);
+
+        } else if (rand < 0.80) {
+            // Cold/winter temperatures (-10 to 15°C)
+            temp = -10.0 + (random.nextDouble() * 25.0);
+
+        } else if (rand < 0.95) {
+            // Hot/summer temperatures (30-50°C)
+            temp = 30.0 + (random.nextDouble() * 20.0);
+
+        } else {
+            // Extreme temperatures
+            if (random.nextBoolean()) {
+                // Extreme cold (-30 to -10°C)
+                temp = -30.0 + (random.nextDouble() * 20.0);
+            } else {
+                // Extreme heat (50-70°C)
+                temp = 50.0 + (random.nextDouble() * 20.0);
+            }
         }
 
-        // Add some realistic fluctuation
-        return baseTemp + (random.nextGaussian() * variation);
+        return temp;
     }
 
     private double generateRealisticPressure() {
