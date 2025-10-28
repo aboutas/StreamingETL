@@ -79,39 +79,10 @@ bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication
 Use when: Starting new test run, comparing parallelism levels, ensuring clean state
 
 ================================================================================
-STEP 4: FEED INPUT TOPIC WITH DATA
+STEP 4: DEPLOY FLINK JOB
 ================================================================================
 
 ssh avoutas@clu04.softnet.tuc.gr
-cd /home/avoutas/boutasThesis
-
-# Send exactly N records to Kafka input topic (producer stops automatically)
-java -jar etl-file-producer-1.0.0.jar \
-    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
-    --kafka.input.topic=etl.input.v1 \
-    --producer.mode=random \
-    --producer.max.records=10000
-
-Expected log when finished:
-✅ Random data production COMPLETED. Sent exactly 10000 records (max limit reached).
-Shutting down Spring Boot application...
-
-Generates data for:
-- 6 sensor types: temperature, pressure, humidity, air_quality, light, noise
-- 8 rooms: room-a, room-b, room-c, room-d, lobby, conference-room, kitchen, server-room
-
-Common test sizes:
-- Quick test: --producer.max.records=1000
-- Medium test: --producer.max.records=10000
-- Large test: --producer.max.records=100000
-- Performance test: --producer.max.records=1000000
-
-NOTE: For continuous data generation use --producer.max.records=-1 (must kill manually)
-
-================================================================================
-STEP 5: DEPLOY FLINK JOB
-================================================================================
-
 cd /usr/local/flink/
 
 ./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar \
@@ -138,7 +109,7 @@ Troubleshooting:
 If you get permission errors: export FLINK_LOG_DIR=~/flink-logs && mkdir -p ~/flink-logs
 
 ================================================================================
-STEP 6: START ETL API
+STEP 5: START ETL API & SUBMIT CONFIG
 ================================================================================
 
 cd /home/avoutas/boutasThesis
@@ -154,6 +125,35 @@ curl -X POST http://clu04.softnet.tuc.gr:8080/config \
     -d @config-test123.json
 
 Expected: {"jobId":"test123","status":"REGISTERED",...}
+
+IMPORTANT: Config MUST be submitted BEFORE feeding data! This ensures all records get processed.
+
+================================================================================
+STEP 6: FEED INPUT TOPIC WITH DATA
+================================================================================
+
+# Now send data - config is already registered and will process all records
+java -jar etl-file-producer-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.input.topic=etl.input.v1 \
+    --producer.mode=random \
+    --producer.max.records=10000
+
+Expected log when finished:
+✅ Random data production COMPLETED. Sent exactly 10000 records (max limit reached).
+Shutting down Spring Boot application...
+
+Generates data for:
+- 6 sensor types: temperature, pressure, humidity, air_quality, light, noise
+- 8 rooms: room-a, room-b, room-c, room-d, lobby, conference-room, kitchen, server-room
+
+Common test sizes:
+- Quick test: --producer.max.records=1000
+- Medium test: --producer.max.records=10000
+- Large test: --producer.max.records=100000
+- Performance test: --producer.max.records=1000000
+
+NOTE: For continuous data generation use --producer.max.records=-1 (must kill manually)
 
 ================================================================================
 STEP 7: MONITOR & TEST
@@ -183,17 +183,7 @@ QUICK START (COPY-PASTE)
 
 ssh avoutas@clu04.softnet.tuc.gr
 
-# 1. Feed input topic
-cd /home/avoutas/boutasThesis
-java -jar etl-file-producer-1.0.0.jar \
-    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
-    --kafka.input.topic=etl.input.v1 \
-    --producer.mode=random \
-    --producer.max.records=10000
-
-# Wait for completion (log shows: "Random data production COMPLETED")
-
-# 2. Deploy Flink job
+# 1. Deploy Flink job
 cd /usr/local/flink/
 ./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar \
     --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
@@ -201,7 +191,7 @@ cd /usr/local/flink/
     --kafka.input.topic etl.input.v1 \
     --kafka.output.topic etl.output.v1
 
-# 3. Start ETL API
+# 2. Start ETL API and submit config
 cd /home/avoutas/boutasThesis
 java -jar etl-api-1.0.0.jar \
     --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
@@ -210,12 +200,20 @@ java -jar etl-api-1.0.0.jar \
 
 sleep 10
 
-# 4. Submit config
 curl -X POST http://clu04.softnet.tuc.gr:8080/config \
     -H "Content-Type: application/json" \
     -d @config-test123.json
 
-# 5. Monitor output
+# 3. Feed input topic (config is already registered)
+java -jar etl-file-producer-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.input.topic=etl.input.v1 \
+    --producer.mode=random \
+    --producer.max.records=10000
+
+# Wait for completion (log shows: "Random data production COMPLETED")
+
+# 4. Monitor output
 cd /usr/hdp/current/kafka-broker
 bin/kafka-console-consumer.sh \
     --bootstrap-server clu02.softnet.tuc.gr:6667 \
@@ -294,17 +292,18 @@ PERFORMANCE TESTING
 PARALLELISM COMPARISON:
 For testing different parallelism levels, reset topics (see STEP 3) then:
 
-1. Feed exactly 100,000 records
-2. Cancel old job: cd /usr/local/flink && ./bin/flink list && ./bin/flink cancel <JOB-ID>
-3. Submit with new parallelism: ./bin/flink run -p 22 -d ... (try -p 4, 8, 11, 22)
-4. Start API and submit config
+1. Cancel old job: cd /usr/local/flink && ./bin/flink list && ./bin/flink cancel <JOB-ID>
+2. Submit with new parallelism: ./bin/flink run -p 22 -d ... (try -p 4, 8, 11, 22)
+3. Start API and submit config (ensure config is registered)
+4. Feed exactly 100,000 records
 5. Measure processing time from Flink dashboard or output topic timestamps
 
 LOAD TESTING:
-1. Feed large dataset: --producer.max.records=1000000
+1. Start Flink job with desired parallelism
 2. Submit all 5 configs simultaneously (see TEST CONFIGURATIONS section)
-3. Monitor Flink dashboard for throughput, latency, backpressure
-4. Check: All operators green (no backpressure), high records/sec
+3. Feed large dataset: --producer.max.records=1000000
+4. Monitor Flink dashboard for throughput, latency, backpressure
+5. Check: All operators green (no backpressure), high records/sec
 
 Expected throughput: High records/sec with multiple active configs
 
