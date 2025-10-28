@@ -1,0 +1,26 @@
+{
+  "jobId": "elements-only",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "filter_greater",
+      "params": {
+        "sensor": "temperature",
+        "field": "measurement",
+        "threshold": 30
+      }
+    },
+    {
+      "type": "to_lowercase",
+      "params": {
+        "field": "location"
+      }
+    },
+    {
+      "type": "trim_whitespace",
+      "params": {
+        "field": "location"
+      }
+    }
+  ]
+}
