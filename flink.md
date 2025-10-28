@@ -635,6 +635,129 @@ public SensorEvent map(SensorEvent event) throws Exception {
 }
 ```
 
+#### 4. Normalize (Min-Max Scaling)
+**File:** `flink/src/main/java/com/etl/flink/udf/ElementTransformations.java:166`
+
+Scales numeric values to [0, 1] range using min-max normalization. Useful for ML feature preparation and data standardization.
+
+```json
+{
+  "type": "normalize",
+  "params": {
+    "field": "measurement",
+    "min": 0.0,
+    "max": 100.0
+  }
+}
+```
+
+**Implementation:**
+```java
+public SensorEvent map(SensorEvent event) throws Exception {
+    Double value = event.getMeasurement();
+    if (value != null) {
+        // Normalize: (value - min) / (max - min)
+        double normalized = (value - min) / (max - min);
+        // Clamp to [0, 1] in case value is outside range
+        normalized = Math.max(0.0, Math.min(1.0, normalized));
+        event.setMeasurement(normalized);
+    }
+    return event;
+}
+```
+
+**Example:**
+- Input: humidity = 75%
+- Config: min=0, max=100
+- Output: measurement = 0.75
+
+#### 5. To Lowercase
+**File:** `flink/src/main/java/com/etl/flink/udf/ElementTransformations.java:197`
+
+Normalizes text fields to lowercase for consistency and easier grouping/filtering.
+
+```json
+{
+  "type": "to_lowercase",
+  "params": {
+    "field": "location"  // Supports: location, sensor, measurement_unit, data_quality
+  }
+}
+```
+
+**Implementation:**
+```java
+public SensorEvent map(SensorEvent event) throws Exception {
+    switch (field) {
+        case "location":
+            if (event.getLocation() != null) {
+                event.setLocation(event.getLocation().toLowerCase());
+            }
+            break;
+        // ... similar for other fields
+    }
+    return event;
+}
+```
+
+**Example:**
+- Input: location = "Room-A"
+- Output: location = "room-a"
+
+#### 6. Trim Whitespace
+**File:** `flink/src/main/java/com/etl/flink/udf/ElementTransformations.java:236`
+
+Removes leading and trailing whitespace from string fields. Essential for data quality and cleaning.
+
+```json
+{
+  "type": "trim_whitespace",
+  "params": {
+    "field": "location"  // Supports: location, sensor, measurement_unit, data_quality
+  }
+}
+```
+
+**Implementation:**
+```java
+public SensorEvent map(SensorEvent event) throws Exception {
+    switch (field) {
+        case "location":
+            if (event.getLocation() != null) {
+                event.setLocation(event.getLocation().trim());
+            }
+            break;
+        // ... similar for other fields
+    }
+    return event;
+}
+```
+
+**Example:**
+- Input: location = "  lobby  "
+- Output: location = "lobby"
+
+**Chaining Example:**
+```json
+{
+  "transformations": [
+    {
+      "type": "trim_whitespace",
+      "params": {"field": "location"}
+    },
+    {
+      "type": "to_lowercase",
+      "params": {"field": "location"}
+    },
+    {
+      "type": "max",
+      "keyBy": "location",
+      "params": {"field": "measurement", "sensor": "temperature"}
+    }
+  ]
+}
+```
+
 ### Aggregation Transformations
 
 Aggregation transformations compute statistics over windows of events.
@@ -1777,19 +1900,37 @@ env.enableCheckpointing(30000);  // 30 seconds
 
 ## Key Distribution and Parallelism
 
-### Keying Strategy
+### Keying Strategy - TRUE CoFlatMap Parallelism
 
 **Config Stream:**
 ```java
-.keyBy(new ConfigKeyExtractor())  // Returns "universal"
+.keyBy(new ConfigKeyExtractor())  // Extracts sensor type from config
 ```
 **File:** `flink/src/main/java/com/etl/flink/process/ConfigKeyExtractor.java:14`
 
+The `ConfigKeyExtractor` analyzes the config transformations and returns the sensor type being targeted:
+```java
+// Example: If config has transformation with sensor="temperature"
+// Returns: "temperature"
+```
+
 **Data Stream:**
 ```java
-.keyBy(event -> "universal")  // All events use same key
+.keyBy(event -> event.getSensor())  // Key by sensor type for parallel processing
 ```
 **File:** `flink/src/main/java/com/etl/flink/EtlFlinkJob.java:116`
+
+**TRUE Parallelism:**
+Both streams are keyed by the **same field (sensor type)**, enabling:
+- Configs for sensor "temperature" → route to subtask X
+- Events with sensor="temperature" → route to same subtask X
+- Each sensor type processes on its own subtask
+- No cross-subtask communication needed
+
+**Design Constraint:**
+- One config targets ONE sensor type only
+- No cross-sensor configurations
+- Benefit: Clean parallelism across sensor types
 
 ### Parallelism Configuration
 

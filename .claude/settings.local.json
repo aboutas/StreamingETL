@@ -38,7 +38,10 @@
       "Bash(dir:*)",
       "Bash(java:*)",
       "Bash(git add:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git checkout main -- config-test123.json config-air-quality-hot-days.json config-cold-humid-rooms.json config-light-high-humidity.json)",
+      "Bash(git log:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

@@ -10,6 +10,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Service;
 
@@ -56,12 +58,17 @@ public class FileProducerService {
     @Value("${producer.max.records:-1}")
     private long maxRecords; // -1 = unlimited, >0 = stop after N records
 
+    private final ApplicationContext applicationContext;
     private KafkaProducer<String, String> kafkaProducer;
     private ObjectMapper objectMapper;
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final Random random = new Random();
     private final String[] sensorTypes = {"temperature", "pressure", "humidity", "air_quality", "light", "noise"};
     private final String[] locations = {"room-a", "room-b", "room-c", "room-d", "lobby", "conference-room", "kitchen", "server-room"};
+
+    public FileProducerService(ApplicationContext applicationContext) {
+        this.applicationContext = applicationContext;
+    }
 
     @Bean
     public ApplicationRunner startProducer() {
@@ -172,6 +179,7 @@ public class FileProducerService {
 
                 if (maxRecords > 0 && messageCount >= maxRecords) {
                     LOG.info("✅ File production COMPLETED. Sent exactly {} records (max limit reached).", messageCount);
+                    shutdownApplication();
                 } else {
                     LOG.info("File production completed. Total messages sent: {}", messageCount);
                 }
@@ -235,6 +243,7 @@ public class FileProducerService {
 
                 if (maxRecords > 0 && messageCount >= maxRecords) {
                     LOG.info("✅ Random data production COMPLETED. Sent exactly {} records (max limit reached).", messageCount);
+                    shutdownApplication();
                 } else {
                     LOG.info("Comprehensive data production completed. Total messages sent: {}", messageCount);
                 }
@@ -646,6 +655,20 @@ public class FileProducerService {
         } catch (Exception e) {
             return "unknown";
         }
+    }
+
+    private void shutdownApplication() {
+        LOG.info("Shutting down Spring Boot application...");
+        new Thread(() -> {
+            try {
+                Thread.sleep(2000); // Give time for final logs and Kafka producer to flush
+                SpringApplication.exit(applicationContext, () -> 0);
+                System.exit(0);
+            } catch (Exception e) {
+                LOG.error("Error during application shutdown", e);
+                System.exit(1);
+            }
+        }).start();
     }
 
     @PreDestroy
