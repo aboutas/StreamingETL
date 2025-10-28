@@ -15,9 +15,9 @@ OVERVIEW
 ================================================================================
 
 3 Components:
-1. Flink Job (etl-flink-1.0.0.jar) - Processes sensor data
-2. ETL API (etl-api-1.0.0.jar) - REST API for configurations
-3. File Producer (etl-file-producer-1.0.0.jar) - Generates sensor data
+1. Flink Job (etl-flink-1.0.0.jar) - Processes sensor data from Kafka
+2. ETL API (etl-api-1.0.0.jar) - REST API for job configurations
+3. File Producer (etl-file-producer-1.0.0.jar) - Feeds Kafka with specific number of test records
 
 Architecture:
 - Flink Job: SoftNet Cluster (clu01 master, 11 workers)
@@ -50,12 +50,14 @@ scp /home/thanasis/Documents/etl-flink-project/services/etl-file-producer/target
 scp /home/thanasis/Documents/etl-flink-project/config-*.json avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
 
 ================================================================================
-STEP 3: CREATE KAFKA TOPICS (FIRST TIME ONLY)
+STEP 3: CREATE KAFKA TOPICS
 ================================================================================
 
 ssh avoutas@clu04.softnet.tuc.gr
 cd /usr/hdp/current/kafka-broker
 
+FIRST TIME SETUP - Create topics:
+──────────────────────────────────
 bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
     --replication-factor 2 --partitions 4 --topic etl.input.v1
 
@@ -68,14 +70,67 @@ bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
 Verify:
 bin/kafka-topics.sh --list --zookeeper clu01.softnet.tuc.gr:2182
 
+
+FOR MULTIPLE TESTS - Delete and recreate for clean slate:
+──────────────────────────────────────────────────────────
+# Delete all topics
+bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.input.v1
+bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.config.v1
+bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.output.v1
+
+# Recreate all topics
+bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
+    --replication-factor 2 --partitions 4 --topic etl.input.v1
+
+bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
+    --replication-factor 2 --partitions 4 --topic etl.config.v1
+
+bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
+    --replication-factor 2 --partitions 4 --topic etl.output.v1
+
+Use this when:
+- Starting a new test run with fresh data
+- Comparing different parallelism levels
+- Ensuring no leftover data from previous tests
+
 ================================================================================
-STEP 4: DEPLOY FLINK JOB
+STEP 4: FEED INPUT TOPIC WITH DATA
 ================================================================================
 
 ssh avoutas@clu04.softnet.tuc.gr
+cd /home/avoutas/boutasThesis
+
+# Send exactly N records to Kafka input topic and stop automatically
+# This fills the topic with data BEFORE starting processing
+
+java -jar etl-file-producer-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.input.topic=etl.input.v1 \
+    --producer.mode=random \
+    --producer.max.records=10000
+
+Expected log output when finished:
+INFO: Reached max records limit: 10000. Stopping producer.
+INFO: ✅ File production COMPLETED. Sent exactly 10000 records (max limit reached).
+
+Generates realistic data for:
+- 6 sensor types: temperature, pressure, humidity, air_quality, light, noise
+- 8 rooms: room-a, room-b, room-c, room-d, lobby, conference-room, kitchen, server-room
+
+Common test sizes:
+- Quick test: --producer.max.records=1000
+- Medium test: --producer.max.records=10000
+- Large test: --producer.max.records=100000
+- Performance test: --producer.max.records=1000000
+
+================================================================================
+STEP 5: DEPLOY FLINK JOB
+================================================================================
+
+# Now start Flink job to process the data already in Kafka
+
 cd /usr/local/flink/
 
-# Submit job with command-line arguments (NO need to export environment variables)
 ./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar \
     --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
     --kafka.config.topic etl.config.v1 \
@@ -91,7 +146,7 @@ Troubleshooting:
 If you get permission errors: export FLINK_LOG_DIR=~/flink-logs && mkdir -p ~/flink-logs
 
 ================================================================================
-STEP 5: START ETL API
+STEP 6: START ETL API
 ================================================================================
 
 cd /home/avoutas/boutasThesis
@@ -101,27 +156,12 @@ java -jar etl-api-1.0.0.jar \
     --kafka.config.topic=etl.config.v1 \
     --server.port=8080 &
 
-Wait 10 seconds, then test:
+Wait 10 seconds, then submit configuration:
 curl -X POST http://clu04.softnet.tuc.gr:8080/config \
     -H "Content-Type: application/json" \
     -d @config-test123.json
 
 Expected: {"jobId":"test123","status":"REGISTERED",...}
-
-================================================================================
-STEP 6: START FILE PRODUCER
-================================================================================
-
-java -jar etl-file-producer-1.0.0.jar \
-    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
-    --kafka.input.topic=etl.input.v1 \
-    --producer.mode=random \
-    --producer.rate.per.sec=240 &
-
-Generates realistic data for:
-- 6 sensor types: temperature, pressure, humidity, air_quality, light, noise
-- 8 rooms: room-a, room-b, room-c, room-d, lobby, conference-room, kitchen, server-room
-- 240 messages/sec × 48 combinations = 11,520 events/sec
 
 ================================================================================
 STEP 7: TEST & MONITOR
@@ -158,7 +198,17 @@ QUICK START (COPY-PASTE ALL)
 
 ssh avoutas@clu04.softnet.tuc.gr
 
-# Deploy Flink job
+# STEP 1: Feed Kafka input topic with test data
+cd /home/avoutas/boutasThesis
+java -jar etl-file-producer-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.input.topic=etl.input.v1 \
+    --producer.mode=random \
+    --producer.max.records=10000
+
+# Wait for completion (log shows: "File production COMPLETED. Sent exactly 10000 records")
+
+# STEP 2: Deploy Flink job to process the data
 cd /usr/local/flink/
 ./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar \
     --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
@@ -166,26 +216,21 @@ cd /usr/local/flink/
     --kafka.input.topic etl.input.v1 \
     --kafka.output.topic etl.output.v1
 
-# Start ETL API
+# STEP 3: Start ETL API to submit configurations
 cd /home/avoutas/boutasThesis
 java -jar etl-api-1.0.0.jar \
     --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
     --kafka.config.topic=etl.config.v1 \
     --server.port=8080 &
 
-# Start File Producer (240 msg/sec = 11,520 events/sec)
-java -jar etl-file-producer-1.0.0.jar \
-    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
-    --kafka.input.topic=etl.input.v1 \
-    --producer.mode=random \
-    --producer.rate.per.sec=240 &
+# Wait 10 seconds for API to start, then submit config
+sleep 10
 
-# Test
 curl -X POST http://clu04.softnet.tuc.gr:8080/config \
     -H "Content-Type: application/json" \
     -d @config-test123.json
 
-# Monitor
+# Monitor output
 cd /usr/hdp/current/kafka-broker
 bin/kafka-console-consumer.sh \
     --bootstrap-server clu02.softnet.tuc.gr:6667 \
@@ -250,11 +295,13 @@ done
 IMPORTANT NOTES
 ================================================================================
 
-1. Kafka configuration passed as command-line arguments (no environment variables needed)
-2. Parallelism -p 11 = one task per worker (optimal)
-3. Producer generates realistic data automatically - no files needed
-4. All JARs compiled with Java 8 for cluster compatibility
-5. Command-line arguments are distributed to all TaskManagers automatically
+1. TESTING WORKFLOW: Feed input topic first → Start Flink job → Start ETL API → Submit configs
+2. File producer sends exactly N records and stops (use --producer.max.records=N)
+3. Kafka configuration passed as command-line arguments (no environment variables needed)
+4. Parallelism -p 11 = one task per worker (optimal baseline)
+5. Producer generates realistic data automatically - no files needed
+6. All JARs compiled with Java 8 for cluster compatibility
+7. Command-line arguments are distributed to all TaskManagers automatically
 
 ================================================================================
 CRITICAL FIXES APPLIED
@@ -281,6 +328,13 @@ CRITICAL FIXES APPLIED
    - Flink version: 1.9.3
    - Changed jakarta.annotation to javax.annotation
 
+5. ✅ Max Records Limit (NEW - Latest)
+   - File Producer now supports controlled testing with exact record counts
+   - Parameter: --producer.max.records=N (default: -1 = unlimited)
+   - Producer sends exactly N records then stops automatically
+   - Enables reproducible tests and performance comparisons
+   - Location: FileProducerService.java
+
 ================================================================================
 VERIFICATION STATUS
 ================================================================================
@@ -301,27 +355,100 @@ PERFORMANCE TESTING & TUNING
 
 Once the system is verified working, you can tune performance parameters:
 
-1. CHANGE DATA PRODUCTION RATE (DEFAULT: 240 msg/sec)
+1. CONTROLLED TESTING WITH MAX RECORDS LIMIT (PRIMARY MODE)
    ─────────────────────────────────────────────────────────────────────────
 
-   Stop current producer:
-   ps aux | grep etl-file-producer
-   kill <PID>
+   For testing purposes, you can configure the file producer to send exactly N
+   records and then stop automatically. This is useful for:
+   - Load testing with specific record counts (10K, 100K, 1M)
+   - Reproducible test scenarios
+   - Controlled data volume testing
+   - Avoiding infinite data generation during experiments
 
-   Start with new rate:
+   PARAMETER: --producer.max.records=<N>
+   - Default: -1 (unlimited, producer runs forever until killed)
+   - Set to positive number to stop after N records
+
+   EXAMPLES:
+
+   Send exactly 10,000 records then stop:
    cd /home/avoutas/boutasThesis
    java -jar etl-file-producer-1.0.0.jar \
        --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
        --kafka.input.topic=etl.input.v1 \
        --producer.mode=random \
-       --producer.rate.per.sec=240 &
+       --producer.rate.per.sec=240 \
+       --producer.max.records=10000
 
-   Produces: 240 messages/sec × 48 sensor combinations = 11,520 events/sec
+   Send exactly 100,000 records then stop:
+   java -jar etl-file-producer-1.0.0.jar \
+       --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+       --kafka.input.topic=etl.input.v1 \
+       --producer.mode=random \
+       --producer.rate.per.sec=500 \
+       --producer.max.records=100000
 
-   Test with higher rates: 500, 1000, 2000 msg/sec
+   Send exactly 1 million records then stop:
+   java -jar etl-file-producer-1.0.0.jar \
+       --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+       --kafka.input.topic=etl.input.v1 \
+       --producer.mode=random \
+       --producer.rate.per.sec=1000 \
+       --producer.max.records=1000000
+
+   EXPECTED LOG OUTPUT:
+   When limit is reached, you'll see:
+
+   INFO: Reached max records limit: 10000. Stopping producer.
+   INFO: ✅ File production COMPLETED. Sent exactly 10000 records (max limit reached).
+
+   The producer process will exit automatically - no need to kill it manually.
+
+   FILE MODE:
+   Also works with --producer.mode=file:
+   java -jar etl-file-producer-1.0.0.jar \
+       --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+       --kafka.input.topic=etl.input.v1 \
+       --producer.mode=file \
+       --producer.file.path=/home/avoutas/boutasThesis/sensor-data.json \
+       --producer.max.records=5000
+
+   UNLIMITED (CONTINUOUS MODE):
+   To run forever (continuous data generation), omit the parameter or set to -1:
+   java -jar etl-file-producer-1.0.0.jar \
+       --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+       --kafka.input.topic=etl.input.v1 \
+       --producer.mode=random \
+       --producer.max.records=-1
+
+   NOTE: When using continuous mode, you must manually stop the producer:
+   ps aux | grep etl-file-producer
+   kill <PID>
 
 
-2. CHANGE FLINK PARALLELISM (DEFAULT: -p 11)
+2. CONTINUOUS DATA STREAMING (FOR REAL-TIME TESTING)
+   ─────────────────────────────────────────────────────────────────────────
+
+   If you need continuous data generation for real-time testing, you can run
+   the producer in background mode without a max records limit.
+
+   IMPORTANT: In this mode, start services in this order:
+   1. Flink job
+   2. ETL API
+   3. File Producer (in background)
+
+   cd /home/avoutas/boutasThesis
+   java -jar etl-file-producer-1.0.0.jar \
+       --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+       --kafka.input.topic=etl.input.v1 \
+       --producer.mode=random \
+       --producer.max.records=-1 &
+
+   This will run forever until manually killed.
+   Use this mode for: long-running tests, stress testing, continuous monitoring.
+
+
+3. CHANGE FLINK PARALLELISM (DEFAULT: -p 11)
    ─────────────────────────────────────────────────────────────────────────
 
    Cancel current job:
@@ -344,7 +471,7 @@ Once the system is verified working, you can tune performance parameters:
    Monitor: http://clu01.softnet.tuc.gr:8081 (check backpressure, latency)
 
 
-3. CHANGE WINDOWING SIZE (DEFAULT: 3 seconds)
+4. CHANGE WINDOWING SIZE (DEFAULT: 3 seconds)
    ─────────────────────────────────────────────────────────────────────────
 
    Edit source code:
@@ -367,7 +494,7 @@ Once the system is verified working, you can tune performance parameters:
    Cancel old job and submit new one with updated JAR
 
 
-4. SUBMIT MULTIPLE CONFIGS FOR LOAD TESTING
+5. SUBMIT MULTIPLE CONFIGS FOR LOAD TESTING
    ─────────────────────────────────────────────────────────────────────────
 
    Submit all test configs simultaneously:
@@ -403,18 +530,310 @@ Once the system is verified working, you can tune performance parameters:
 RECOMMENDED TEST SCENARIO (HIGH LOAD):
 ───────────────────────────────────────────────────────────────────────────
 
-1. Set parallelism to -p 22 (2 tasks per worker)
-2. Set producer rate to 240 msg/sec (or higher)
+1. Feed input topic with large dataset: --producer.max.records=100000
+2. Set Flink parallelism to -p 22 (2 tasks per worker)
 3. Keep window size at 3 seconds
 4. Submit all 5 configs simultaneously
-5. Monitor for 5-10 minutes
+5. Monitor processing until completion
 6. Check Flink metrics for:
    - Records processed per second
    - Average latency
    - Backpressure (should be LOW or none)
    - CPU/memory usage on worker nodes
+   - Total processing time
 
-Expected throughput: 11,520+ events/sec with 5 active configs
+Expected throughput: High records/sec with 5 active configs and efficient processing
+
+================================================================================
+MEASURING PROCESSING TIME & THROUGHPUT
+================================================================================
+
+When testing different parallelism levels, you need to measure how long it takes
+to process a specific number of records. This helps you compare performance.
+
+RECOMMENDED APPROACH:
+Use timestamps from output topic (processedAt field) to calculate:
+- End-to-end processing time: last_record_time - first_record_time
+- Throughput: total_records / processing_time_seconds
+
+────────────────────────────────────────────────────────────────────────────
+METHOD 1: Manual Timestamp Extraction (Simple)
+────────────────────────────────────────────────────────────────────────────
+
+STEP 1: Reset Kafka topics (clean start)
+cd /usr/hdp/current/kafka-broker
+bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.input.v1
+bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.output.v1
+bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
+    --replication-factor 2 --partitions 4 --topic etl.input.v1
+bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
+    --replication-factor 2 --partitions 4 --topic etl.output.v1
+
+STEP 2: Feed input topic with exact record count
+cd /home/avoutas/boutasThesis
+java -jar etl-file-producer-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.input.topic=etl.input.v1 \
+    --producer.mode=random \
+    --producer.max.records=10000
+
+Wait for completion (log shows: "File production COMPLETED. Sent exactly 10000 records")
+
+STEP 3: Submit Flink job with specific parallelism
+cd /usr/local/flink
+./bin/flink run -p 4 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar \
+    --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.config.topic etl.config.v1 \
+    --kafka.input.topic etl.input.v1 \
+    --kafka.output.topic etl.output.v1
+
+STEP 4: Start ETL API and submit config
+cd /home/avoutas/boutasThesis
+java -jar etl-api-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.config.topic=etl.config.v1 \
+    --server.port=8080 &
+
+sleep 10
+
+curl -X POST http://clu04.softnet.tuc.gr:8080/config \
+    -H "Content-Type: application/json" \
+    -d @config-test123.json
+
+STEP 5: Wait for processing to complete, then extract timestamps
+cd /usr/hdp/current/kafka-broker
+
+# Get FIRST record timestamp (skip config confirmation message)
+bin/kafka-console-consumer.sh \
+    --bootstrap-server clu02.softnet.tuc.gr:6667 \
+    --topic etl.output.v1 \
+    --from-beginning \
+    --max-messages 5
+
+Look for first aggregation result (NOT config confirmation), extract "processedAt":
+Example: "processedAt":"2025-10-12T18:44:21.123Z"
+Save as: FIRST_TIME
+
+# Get LAST record timestamp
+bin/kafka-console-consumer.sh \
+    --bootstrap-server clu02.softnet.tuc.gr:6667 \
+    --topic etl.output.v1 \
+    --from-beginning | tail -5
+
+Look for last "processedAt" timestamp:
+Save as: LAST_TIME
+
+STEP 6: Calculate processing time
+Convert ISO-8601 timestamps to epoch seconds and subtract:
+
+Example calculation:
+FIRST_TIME: 2025-10-12T18:44:21.123Z  → 1728757461 seconds
+LAST_TIME:  2025-10-12T18:44:35.456Z  → 1728757475 seconds
+Processing time: 1728757475 - 1728757461 = 14 seconds
+
+Throughput: 10,000 records / 14 seconds = 714 records/sec
+
+
+────────────────────────────────────────────────────────────────────────────
+METHOD 2: Automated Script (Recommended)
+────────────────────────────────────────────────────────────────────────────
+
+Create a script to automate timestamp extraction and calculation:
+
+cd /home/avoutas/boutasThesis
+cat > measure_throughput.sh << 'EOF'
+#!/bin/bash
+
+TOPIC="etl.output.v1"
+KAFKA_DIR="/usr/hdp/current/kafka-broker"
+BOOTSTRAP_SERVER="clu02.softnet.tuc.gr:6667"
+
+echo "Consuming all messages from $TOPIC..."
+$KAFKA_DIR/bin/kafka-console-consumer.sh \
+    --bootstrap-server $BOOTSTRAP_SERVER \
+    --topic $TOPIC \
+    --from-beginning \
+    --timeout-ms 5000 > /tmp/output_records.json 2>/dev/null
+
+# Extract all processedAt timestamps (skip config confirmations)
+grep -o '"processedAt":"[^"]*"' /tmp/output_records.json | \
+    grep -o '[0-9T:.-]*Z' > /tmp/timestamps.txt
+
+FIRST_TS=$(head -1 /tmp/timestamps.txt)
+LAST_TS=$(tail -1 /tmp/timestamps.txt)
+TOTAL_RECORDS=$(wc -l < /tmp/timestamps.txt)
+
+echo "========================================"
+echo "PROCESSING TIME ANALYSIS"
+echo "========================================"
+echo "First record timestamp: $FIRST_TS"
+echo "Last record timestamp:  $LAST_TS"
+echo "Total records processed: $TOTAL_RECORDS"
+
+# Convert to epoch seconds (requires date command)
+FIRST_EPOCH=$(date -d "$FIRST_TS" +%s 2>/dev/null || echo "0")
+LAST_EPOCH=$(date -d "$LAST_TS" +%s 2>/dev/null || echo "0")
+
+if [ "$FIRST_EPOCH" != "0" ] && [ "$LAST_EPOCH" != "0" ]; then
+    DURATION=$((LAST_EPOCH - FIRST_EPOCH))
+    if [ $DURATION -gt 0 ]; then
+        THROUGHPUT=$((TOTAL_RECORDS / DURATION))
+        echo "Processing duration:     $DURATION seconds"
+        echo "Throughput:              $THROUGHPUT records/sec"
+    else
+        echo "Duration too short to measure accurately"
+    fi
+else
+    echo "Manual calculation needed (timestamps above)"
+fi
+
+echo "========================================"
+rm -f /tmp/output_records.json /tmp/timestamps.txt
+EOF
+
+chmod +x measure_throughput.sh
+
+USAGE:
+./measure_throughput.sh
+
+Expected output:
+========================================
+PROCESSING TIME ANALYSIS
+========================================
+First record timestamp: 2025-10-12T18:44:21.123Z
+Last record timestamp:  2025-10-12T18:44:35.456Z
+Total records processed: 3240
+Processing duration:     14 seconds
+Throughput:              231 records/sec
+========================================
+
+
+────────────────────────────────────────────────────────────────────────────
+METHOD 3: Using Flink Dashboard Metrics
+────────────────────────────────────────────────────────────────────────────
+
+1. Open Flink Dashboard: http://clu01.softnet.tuc.gr:8081
+2. Click on your running job
+3. Click on "Window Aggregation" operator
+4. Check metrics:
+   - "Records Sent": Total output records
+   - "Records Sent/sec": Current throughput
+   - Look at graph over time to see throughput trends
+
+This gives you real-time throughput but not total processing time.
+Best combined with Method 1 or 2 for complete picture.
+
+
+────────────────────────────────────────────────────────────────────────────
+COMPLETE PARALLELISM COMPARISON TEST
+────────────────────────────────────────────────────────────────────────────
+
+Test scenario: Process 100,000 records with different parallelism levels
+
+TEST 1: Parallelism = 4
+───────────────────────
+# Reset topics
+cd /usr/hdp/current/kafka-broker
+bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.input.v1
+bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.output.v1
+bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
+    --replication-factor 2 --partitions 4 --topic etl.input.v1
+bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 \
+    --replication-factor 2 --partitions 4 --topic etl.output.v1
+
+# Feed input topic with data
+cd /home/avoutas/boutasThesis
+java -jar etl-file-producer-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.input.topic=etl.input.v1 \
+    --producer.mode=random \
+    --producer.max.records=100000
+
+# Wait for completion (log shows: "File production COMPLETED. Sent exactly 100000 records")
+
+# Cancel old job and start Flink with parallelism 4
+cd /usr/local/flink
+./bin/flink list
+./bin/flink cancel <JOB-ID>
+./bin/flink run -p 4 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar \
+    --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.config.topic etl.config.v1 \
+    --kafka.input.topic etl.input.v1 \
+    --kafka.output.topic etl.output.v1
+
+# Submit config
+cd /home/avoutas/boutasThesis
+curl -X POST http://clu04.softnet.tuc.gr:8080/config \
+    -H "Content-Type: application/json" \
+    -d @config-test123.json
+
+# Wait for processing to complete
+sleep 30
+
+# Measure throughput
+./measure_throughput.sh
+
+# Record results:
+# Parallelism 4: X seconds, Y records/sec
+
+
+TEST 2: Parallelism = 8
+───────────────────────
+Repeat above steps with:
+./bin/flink run -p 8 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar ...
+
+# Record results:
+# Parallelism 8: X seconds, Y records/sec
+
+
+TEST 3: Parallelism = 11
+────────────────────────
+Repeat above steps with:
+./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar ...
+
+# Record results:
+# Parallelism 11: X seconds, Y records/sec
+
+
+COMPARISON TABLE (Fill in your results):
+─────────────────────────────────────────────────────────────────────────
+Parallelism | Processing Time | Throughput    | Speedup vs P=4
+─────────────────────────────────────────────────────────────────────────
+4           | ___ seconds     | ___ rec/sec   | 1.0x
+8           | ___ seconds     | ___ rec/sec   | ___x
+11          | ___ seconds     | ___ rec/sec   | ___x
+22          | ___ seconds     | ___ rec/sec   | ___x
+─────────────────────────────────────────────────────────────────────────
+
+Expected behavior:
+- Higher parallelism = shorter processing time (up to a point)
+- Diminishing returns after certain parallelism level
+- Optimal parallelism depends on: Kafka partitions, cluster resources, workload
+
+
+────────────────────────────────────────────────────────────────────────────
+IMPORTANT NOTES
+────────────────────────────────────────────────────────────────────────────
+
+1. WAIT FOR WINDOWS TO FLUSH
+   Aggregation windows are 3 seconds by default. After producer finishes,
+   wait 5-10 seconds before measuring to ensure all windows have fired.
+
+2. SKIP CONFIG CONFIRMATION MESSAGES
+   First message in output topic is config confirmation, NOT data.
+   Start timestamp measurement from first aggregation result.
+
+3. CONSIDER KAFKA LAG
+   Use output topic timestamps (processedAt), NOT input topic timestamps.
+   This captures true Flink processing time.
+
+4. REPEAT TESTS
+   Run each test 2-3 times and average results for accuracy.
+   First run may be slower due to JVM warmup.
+
+5. MONITOR BACKPRESSURE
+   Check Flink dashboard during tests - backpressure indicates bottleneck.
+   If you see backpressure, parallelism won't help much.
 
 ================================================================================
 END OF DEPLOYMENT GUIDE
