@@ -145,7 +145,13 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
             }
         } else if (filteredEvent != null) {
             // Only element transformations, emit the result
+            diagnostics.add("FILTER-ONLY RESULT: Emitting filtered event");
+            LOG.info("Emitting filter-only result for jobId={}, sensor={}, measurement={}",
+                config.getJobId(), filteredEvent.getSensor(), filteredEvent.getMeasurement());
             createFinalResult(filteredEvent, config, diagnostics, out);
+        } else {
+            // filteredEvent is null - event was filtered out
+            LOG.debug("Event filtered out for jobId={}, no aggregations", config.getJobId());
         }
         // If filteredEvent is null and no aggregations matched, the event is completely filtered out
     }
