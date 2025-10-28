@@ -85,16 +85,15 @@ STEP 4: DEPLOY FLINK JOB
 ssh avoutas@clu04.softnet.tuc.gr
 cd /usr/local/flink/
 
-./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar \
-    --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
-    --kafka.config.topic etl.config.v1 \
-    --kafka.input.topic etl.input.v1 \
-    --kafka.output.topic etl.output.v1
+./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 --kafka.config.topic etl.config.v1 --kafka.input.topic etl.input.v1 --kafka.output.topic etl.output.v1
 
 Verify:
 ./bin/flink list
 
 Expected: Job shows status "RUNNING" (NOT "RESTARTING")
+
+Check parallelism and job details:
+http://clu01.softnet.tuc.gr:8081
 
 PARALLELISM OPTIONS:
   -p 4   = Minimal (for testing)
@@ -103,7 +102,6 @@ PARALLELISM OPTIONS:
   -p 33  = Maximum (3 tasks per worker, all slots)
 
 Change parallelism: Cancel job and resubmit with different -p value
-Monitor: http://clu01.softnet.tuc.gr:8081 (check backpressure, latency)
 
 Troubleshooting:
 If you get permission errors: export FLINK_LOG_DIR=~/flink-logs && mkdir -p ~/flink-logs
@@ -185,11 +183,7 @@ ssh avoutas@clu04.softnet.tuc.gr
 
 # 1. Deploy Flink job
 cd /usr/local/flink/
-./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar \
-    --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
-    --kafka.config.topic etl.config.v1 \
-    --kafka.input.topic etl.input.v1 \
-    --kafka.output.topic etl.output.v1
+./bin/flink run -p 11 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 --kafka.config.topic etl.config.v1 --kafka.input.topic etl.input.v1 --kafka.output.topic etl.output.v1
 
 # 2. Start ETL API and submit config
 cd /home/avoutas/boutasThesis
