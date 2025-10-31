@@ -213,6 +213,12 @@ public class FileProducerService {
                         String[] allSensorData = generateComprehensiveSensorData();
 
                         for (String sensorData : allSensorData) {
+                            // Skip null values (should never happen, but extra safety)
+                            if (sensorData == null || sensorData.trim().isEmpty()) {
+                                LOG.warn("Skipping null or empty sensor data");
+                                continue;
+                            }
+
                             String key = generateKey(sensorData);
                             ProducerRecord<String, String> record = new ProducerRecord<>(inputTopic, key, sensorData);
 
@@ -258,8 +264,7 @@ public class FileProducerService {
         try {
             // Use ISO-8601 format without timezone ID (Jackson can parse this to Instant)
             String timestamp = ZonedDateTime.now(GREEK_TIMEZONE).truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toInstant().toString();
-            String[] allData = new String[locations.length * sensorTypes.length]; // 8 rooms * 6 sensors = 48 messages
-            int index = 0;
+            java.util.List<String> allData = new java.util.ArrayList<>(); // Use dynamic list to avoid nulls
 
             // Generate data for ALL sensor types in ALL rooms
             for (String location : locations) {
@@ -315,11 +320,11 @@ public class FileProducerService {
                     jsonObject.put("location", location);
                     jsonObject.put("data_quality", calculateDataQuality(sensorType, measurement, location));
 
-                    allData[index++] = objectMapper.writeValueAsString(jsonObject);
+                    allData.add(objectMapper.writeValueAsString(jsonObject));
                 }
             }
 
-            return allData;
+            return allData.toArray(new String[0]); // Convert to array (only contains valid records)
 
         } catch (Exception e) {
             LOG.error("Error creating comprehensive sensor data", e);
@@ -505,7 +510,7 @@ public class FileProducerService {
     private boolean isValidMeasurement(String sensorType, double measurement) {
         switch (sensorType) {
             case "temperature":
-                return measurement >= -10.0 && measurement <= 60.0; // Reasonable indoor range
+                return measurement >= -30.0 && measurement <= 70.0; // Real-world range: extreme cold to extreme heat
             case "pressure":
                 return measurement >= 950.0 && measurement <= 1080.0; // Atmospheric pressure range
             case "humidity":
