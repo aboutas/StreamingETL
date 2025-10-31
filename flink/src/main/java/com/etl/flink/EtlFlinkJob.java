@@ -100,19 +100,20 @@ public class EtlFlinkJob {
                 .filter(str -> str != null && !str.isEmpty())  // Filter null/empty from deserializer
                 .map(new EventDeserializer())
                 .filter(event -> event != null)
-                .assignTimestampsAndWatermarks(
-                        new BoundedOutOfOrdernessTimestampExtractor<SensorEvent>(Time.seconds(5)) {
-                            @Override
-                            public long extractTimestamp(SensorEvent event) {
-                                try {
-                                    return event.getDatetime().toEpochMilli();
-                                } catch (Exception e) {
-                                    LOG.warn("Failed to extract timestamp: {}", e.getMessage());
-                                    return ZonedDateTime.now(GREEK_TIMEZONE).toInstant().toEpochMilli();
-                                }
-                            }
-                        }
-                )
+                // Watermarks commented out - using processing time windows, not event time
+                // .assignTimestampsAndWatermarks(
+                //         new BoundedOutOfOrdernessTimestampExtractor<SensorEvent>(Time.seconds(5)) {
+                //             @Override
+                //             public long extractTimestamp(SensorEvent event) {
+                //                 try {
+                //                     return event.getDatetime().toEpochMilli();
+                //                 } catch (Exception e) {
+                //                     LOG.warn("Failed to extract timestamp: {}", e.getMessage());
+                //                     return ZonedDateTime.now(GREEK_TIMEZONE).toInstant().toEpochMilli();
+                //                 }
+                //             }
+                //         }
+                // )
                 .keyBy(event -> event.getSensor());
 
         // CoFlatMap processing
@@ -125,18 +126,19 @@ public class EtlFlinkJob {
                 .filter(result -> result.getAggregationType() == null);
 
         DataStream<EtlResult> dataResults = processedStream
-                .filter(result -> result.getAggregationType() != null)
-                .assignTimestampsAndWatermarks(
-                        new BoundedOutOfOrdernessTimestampExtractor<EtlResult>(Time.seconds(5)) {
-                            @Override
-                            public long extractTimestamp(EtlResult result) {
-                                if (result.getProcessedAt() != null) {
-                                    return result.getProcessedAt().toEpochMilli();
-                                }
-                                return Instant.now().toEpochMilli();
-                            }
-                        }
-                );
+                .filter(result -> result.getAggregationType() != null);
+                // Watermarks commented out - using processing time windows, not event time
+                // .assignTimestampsAndWatermarks(
+                //         new BoundedOutOfOrdernessTimestampExtractor<EtlResult>(Time.seconds(5)) {
+                //             @Override
+                //             public long extractTimestamp(EtlResult result) {
+                //                 if (result.getProcessedAt() != null) {
+                //                     return result.getProcessedAt().toEpochMilli();
+                //                 }
+                //                 return Instant.now().toEpochMilli();
+                //             }
+                //         }
+                // );
 
         // Windowing
         DataStream<EtlResult> windowedResults = dataResults
