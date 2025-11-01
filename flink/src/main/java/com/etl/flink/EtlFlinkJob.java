@@ -47,7 +47,7 @@ public class EtlFlinkJob {
         env.getConfig().setGlobalJobParameters(params);
 
         env.enableCheckpointing(30000);
-        env.setParallelism(4);
+        // Parallelism set via command-line: flink run -p <parallelism>
 
         // Read configuration from command-line arguments with defaults
         String kafkaBootstrapServers = params.get("kafka.bootstrap.servers", "clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667");
