@@ -1,0 +1,30 @@
+{
+  "jobId": "clean-data",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "trim_whitespace",
+      "params": {
+        "field": "location"
+      }
+    },
+    {
+      "type": "to_lowercase",
+      "params": {
+        "field": "location"
+      }
+    },
+    {
+      "type": "trim_whitespace",
+      "params": {
+        "field": "sensor"
+      }
+    },
+    {
+      "type": "to_lowercase",
+      "params": {
+        "field": "sensor"
+      }
+    }
+  ]
+}

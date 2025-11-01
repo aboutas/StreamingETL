@@ -1,21 +1,19 @@
 {
-  "jobId": "cold-humid-rooms",
+  "jobId": "low-humidity",
   "source": "kafka://etl.input.v1",
   "transformations": [
     {
-      "type": "filter_greater",
+      "type": "filter_less",
       "params": {
         "sensor": "humidity",
         "field": "measurement",
-        "threshold": 70.0
+        "threshold": 40
       }
     },
     {
-      "type": "max",
-      "keyBy": "location",
+      "type": "trim_whitespace",
       "params": {
-        "field": "measurement",
-        "sensor": "humidity"
+        "field": "location"
       }
     }
   ]

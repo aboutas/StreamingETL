@@ -1,5 +1,5 @@
 {
-  "jobId": "light-high-humidity",
+  "jobId": "high-light",
   "source": "kafka://etl.input.v1",
   "transformations": [
     {
@@ -7,15 +7,13 @@
       "params": {
         "sensor": "light",
         "field": "measurement",
-        "threshold": 500.0
+        "threshold": 500
       }
     },
     {
-      "type": "max",
-      "keyBy": "location",
+      "type": "to_lowercase",
       "params": {
-        "field": "measurement",
-        "sensor": "light"
+        "field": "measurement_unit"
       }
     }
   ]

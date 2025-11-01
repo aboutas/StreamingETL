@@ -120,17 +120,24 @@ PREV_COUNT=0
 STABLE_COUNT=0
 
 while true; do
-    COUNT=$(bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+    # Get input topic total records
+    INPUT_COUNT=$(bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+        --broker-list clu02.softnet.tuc.gr:6667 \
+        --topic etl.input.v1 \
+        --time -1 | awk -F: '{sum += $3} END {print sum}')
+
+    # Get output topic records
+    OUTPUT_COUNT=$(bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
         --broker-list clu02.softnet.tuc.gr:6667 \
         --topic etl.output.v1 \
         --time -1 | awk -F: '{sum += $3} END {print sum}')
 
     CURRENT_TIME=$(date +%s)
     ELAPSED=$((CURRENT_TIME - START_TIME))
-    echo "$(date): Output records = $COUNT (elapsed: ${ELAPSED}s)"
+    echo "$(date): Input records = $INPUT_COUNT | Output records = $OUTPUT_COUNT (elapsed: ${ELAPSED}s)"
 
     # Check if stable for 3 iterations (30 seconds)
-    if [ "$COUNT" == "$PREV_COUNT" ] && [ "$COUNT" != "0" ]; then
+    if [ "$OUTPUT_COUNT" == "$PREV_COUNT" ] && [ "$OUTPUT_COUNT" != "0" ]; then
         STABLE_COUNT=$((STABLE_COUNT + 1))
         if [ $STABLE_COUNT -ge 3 ]; then
             END_TIME=$CURRENT_TIME
@@ -139,7 +146,8 @@ while true; do
             echo "============================================"
             echo "✅ PROCESSING COMPLETE!"
             echo "Duration: $DURATION seconds"
-            echo "Output records: $COUNT"
+            echo "Input records: $INPUT_COUNT"
+            echo "Output records: $OUTPUT_COUNT"
             echo "============================================"
             break
         fi
@@ -147,7 +155,7 @@ while true; do
         STABLE_COUNT=0
     fi
 
-    PREV_COUNT=$COUNT
+    PREV_COUNT=$OUTPUT_COUNT
     sleep 10
 done
 SCRIPT

@@ -1,21 +1,21 @@
 {
-  "jobId": "air-quality-hot-days",
+  "jobId": "temp-range",
   "source": "kafka://etl.input.v1",
   "transformations": [
     {
       "type": "filter_greater",
       "params": {
-        "sensor": "air_quality",
+        "sensor": "temperature",
         "field": "measurement",
-        "threshold": 100.0
+        "threshold": 15
       }
     },
     {
-      "type": "max",
-      "keyBy": "location",
+      "type": "filter_less",
       "params": {
+        "sensor": "temperature",
         "field": "measurement",
-        "sensor": "air_quality"
+        "threshold": 35
       }
     }
   ]
