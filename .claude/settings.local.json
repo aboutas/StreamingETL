@@ -41,7 +41,9 @@
       "Bash(git push:*)",
       "Bash(git checkout main -- config-test123.json config-air-quality-hot-days.json config-cold-humid-rooms.json config-light-high-humidity.json)",
       "Bash(git log:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(do echo \"=== $file ===\")",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []

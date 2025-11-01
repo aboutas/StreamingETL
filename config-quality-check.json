@@ -5,7 +5,8 @@
     {
       "type": "trim_whitespace",
       "params": {
-        "field": "data_quality"
+        "field": "data_quality",
+        "sensor": "temperature"
       }
     },
     {

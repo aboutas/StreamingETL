@@ -5,7 +5,8 @@
     {
       "type": "trim_whitespace",
       "params": {
-        "field": "location"
+        "field": "location",
+        "sensor": "temperature"
       }
     },
     {
