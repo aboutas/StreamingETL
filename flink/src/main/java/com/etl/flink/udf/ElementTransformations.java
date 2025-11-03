@@ -86,10 +86,6 @@ public class ElementTransformations {
             }
         }
     }
-
-
-
-
     /**
      * Cross-field filtering function that allows filtering based on one sensor type's measurement
      * while processing events from another sensor type.

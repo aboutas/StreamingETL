@@ -396,7 +396,9 @@ public class FileProducerService {
 
     private double generateRealisticPressure() {
         // Standard atmospheric pressure with realistic variation
-        return 1013.25 + (random.nextGaussian() * 15.0); // 985-1040 hPa range
+        double pressure = 1013.25 + (random.nextGaussian() * 15.0);
+        // Clamp to realistic atmospheric pressure range (avoid extreme outliers from Gaussian distribution)
+        return Math.max(950.0, Math.min(1080.0, pressure));
     }
 
     private double generateRealisticHumidity(String location) {
