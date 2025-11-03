@@ -1,0 +1,19 @@
+{
+  "jobId": "quality-check",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "to_uppercase",
+      "params": {
+        "field": "data_quality",
+        "sensor": "temperature"
+      }
+    },
+    {
+      "type": "to_lowercase",
+      "params": {
+        "field": "measurement_unit"
+      }
+    }
+  ]
+}

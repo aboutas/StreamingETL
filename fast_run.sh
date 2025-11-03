@@ -48,13 +48,25 @@ java -jar etl-file-producer-1.0.0.jar \
     --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
     --kafka.input.topic=etl.input.v1 \
     --producer.mode=random \
-    --producer.max.records=200000
+    --producer.max.records=2000000
 
 
 ./send-config-to-kafka.sh config-elements.json
 ./send-config-to-kafka.sh config-clean-data.json
-./send-config-to-kafka.sh config-high-light.json
 ./send-config-to-kafka.sh config-high-temp.json
+./send-config-to-kafka.sh config-high-light.json
+
+
+./send-config-to-kafka.sh config-test123.json
+./send-config-to-kafka.sh config-max-temp.json
 
 
 ./run-benchmark.sh 4
+
+
+bin/kafka-console-consumer.sh \
+      --bootstrap-server clu02.softnet.tuc.gr:6667 \
+      --topic etl.output.v1 \
+      --partition 1 \
+      --max-messages 1 \
+      --from-beginning
