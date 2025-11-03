@@ -230,6 +230,45 @@ public class ElementTransformations {
     }
 
     /**
+     * To uppercase transformation - Normalize text fields to uppercase
+     * Use case: Standardize location names, sensor types for consistency
+     */
+    public static class ToUppercaseFunction implements MapFunction<SensorEvent, SensorEvent> {
+        private final String field;
+
+        public ToUppercaseFunction(String field) {
+            this.field = field != null ? field : "location";
+        }
+
+        @Override
+        public SensorEvent map(SensorEvent event) throws Exception {
+            switch (field) {
+                case "location":
+                    if (event.getLocation() != null) {
+                        event.setLocation(event.getLocation().toUpperCase());
+                    }
+                    break;
+                case "sensor":
+                    if (event.getSensor() != null) {
+                        event.setSensor(event.getSensor().toUpperCase());
+                    }
+                    break;
+                case "measurement_unit":
+                    if (event.getMeasurementUnit() != null) {
+                        event.setMeasurementUnit(event.getMeasurementUnit().toUpperCase());
+                    }
+                    break;
+                case "data_quality":
+                    if (event.getDataQuality() != null) {
+                        event.setDataQuality(event.getDataQuality().toUpperCase());
+                    }
+                    break;
+            }
+            return event;
+        }
+    }
+
+    /**
      * Trim whitespace transformation - Remove leading/trailing spaces
      * Use case: Clean string fields from data entry errors
      */
@@ -310,6 +349,9 @@ public class ElementTransformations {
             case "to_lowercase":
                 field = (String) params.get("field");
                 return new ToLowercaseFunction(field);
+            case "to_uppercase":
+                field = (String) params.get("field");
+                return new ToUppercaseFunction(field);
             case "trim_whitespace":
                 field = (String) params.get("field");
                 return new TrimWhitespaceFunction(field);

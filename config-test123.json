@@ -11,7 +11,7 @@
       }
     },
     {
-      "type": "to_upecase",
+      "type": "to_uppercase",
       "params": {
         "field": "location"
       }

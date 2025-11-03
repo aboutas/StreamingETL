@@ -203,6 +203,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
                "filter_cross_field".equals(type) ||
                "normalize".equals(type) ||
                "to_lowercase".equals(type) ||
+               "to_uppercase".equals(type) ||
                "trim_whitespace".equals(type);
     }
 
