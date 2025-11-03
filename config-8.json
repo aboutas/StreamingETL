@@ -1,5 +1,5 @@
 {
-  "jobId": "test123-job",
+  "jobId": "normalized-temp",
   "source": "kafka://etl.input.v1",
   "transformations": [
     {
@@ -8,14 +8,6 @@
         "sensor": "temperature",
         "field": "measurement",
         "threshold": 40
-      }
-    },
-    {
-      "type": "max",
-      "keyBy": "location",
-      "params": {
-        "field": "measurement",
-        "sensor": "temperature"
       }
     }
   ]

@@ -46,7 +46,8 @@ public class EtlFlinkJob {
         // Make parameters globally available to all functions
         env.getConfig().setGlobalJobParameters(params);
 
-        env.enableCheckpointing(30000);
+        // comment in for testing
+        // env.enableCheckpointing(30000);
         // Parallelism set via command-line: flink run -p <parallelism>
 
         // Read configuration from command-line arguments with defaults
