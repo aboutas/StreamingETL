@@ -7,11 +7,17 @@
       "params": {
         "sensor": "temperature",
         "field": "measurement",
-        "threshold": 40
+        "threshold": 25
       }
     },
     {
-      "type": "max",
+      "type": "to_upecase",
+      "params": {
+        "field": "location"
+      }
+    }, 
+    {
+      "type": "avg",
       "keyBy": "location",
       "params": {
         "field": "measurement",
