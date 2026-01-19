@@ -17,9 +17,6 @@ public class Transformation implements Serializable {
     @JsonProperty("keyBy")
     private String keyBy;
 
-    @JsonProperty("window")
-    private String window;
-
     public Transformation() {}
 
     public String getType() {
@@ -46,14 +43,6 @@ public class Transformation implements Serializable {
         this.keyBy = keyBy;
     }
 
-    public String getWindow() {
-        return window;
-    }
-
-    public void setWindow(String window) {
-        this.window = window;
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -61,13 +50,12 @@ public class Transformation implements Serializable {
         Transformation that = (Transformation) o;
         return Objects.equals(type, that.type) &&
                 Objects.equals(params, that.params) &&
-                Objects.equals(keyBy, that.keyBy) &&
-                Objects.equals(window, that.window);
+                Objects.equals(keyBy, that.keyBy);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(type, params, keyBy, window);
+        return Objects.hash(type, params, keyBy);
     }
 
     @Override
@@ -76,7 +64,6 @@ public class Transformation implements Serializable {
                 "type='" + type + '\'' +
                 ", params=" + params +
                 ", keyBy='" + keyBy + '\'' +
-                ", window='" + window + '\'' +
                 '}';
     }
 }

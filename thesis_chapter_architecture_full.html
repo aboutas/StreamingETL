@@ -235,6 +235,39 @@
 
     <p><strong>Τοποθεσίες:</strong> room-a, room-b, room-c, room-d, lobby, conference-room, kitchen, server-room</p>
 
+    <p><strong>Modes Λειτουργίας:</strong> Η υπηρεσία υποστηρίζει δύο modes λειτουργίας ανάλογα με το περιβάλλον εκτέλεσης:</p>
+
+    <table>
+        <tr>
+            <th>Χαρακτηριστικό</th>
+            <th>Batch Mode (Cluster)</th>
+            <th>Continuous Mode (Docker)</th>
+        </tr>
+        <tr>
+            <td>Σκοπός</td>
+            <td>Performance testing</td>
+            <td>Development / Demo</td>
+        </tr>
+        <tr>
+            <td>Παράμετρος <code>--producer.max.records</code></td>
+            <td>Ορίζει μέγιστο αριθμό εγγραφών</td>
+            <td>Δεν υποστηρίζεται</td>
+        </tr>
+        <tr>
+            <td>Συμπεριφορά</td>
+            <td>Παράγει N records → τερματίζει αυτόματα</td>
+            <td>Παράγει συνεχώς (continuous stream)</td>
+        </tr>
+        <tr>
+            <td>Παράδειγμα εκτέλεσης</td>
+            <td><code>--producer.max.records=500000</code></td>
+            <td><code>docker-compose up</code></td>
+        </tr>
+    </table>
+    <p class="figure-caption">Πίνακας 3.3: Modes λειτουργίας του File Producer Service</p>
+
+    <p>Το batch mode χρησιμοποιείται για τη μέτρηση της απόδοσης του συστήματος με συγκεκριμένο αριθμό εγγραφών (π.χ. 200K, 1M, 4M records), ενώ το continuous mode είναι κατάλληλο για ανάπτυξη και επίδειξη του συστήματος σε πραγματικό χρόνο.</p>
+
     <h3>3.2.3 Flink Job</h3>
 
     <p>Το Flink Job είναι ο πυρήνας επεξεργασίας του συστήματος. Καταναλώνει δύο ροές δεδομένων από το Kafka: configurations από το <code>etl.config.v1</code> και sensor events από το <code>etl.input.v1</code>. Η βασική πρόκληση είναι η συνένωση αυτών των δύο ροών: κάθε sensor event πρέπει να επεξεργαστεί με βάση τα ενεργά configurations.</p>

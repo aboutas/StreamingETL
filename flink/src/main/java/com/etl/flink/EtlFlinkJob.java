@@ -24,10 +24,8 @@ import org.apache.flink.streaming.util.serialization.KeyedSerializationSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 
@@ -230,7 +228,6 @@ public class EtlFlinkJob {
         public WindowAccumulator add(EtlResult result, WindowAccumulator accumulator) {
             if (accumulator.jobId == null) {
                 accumulator.jobId = result.getJobId();
-                accumulator.source = result.getSource();
                 accumulator.transformations = result.getTransformations();
                 accumulator.groupingField = result.getGroupingField();
                 accumulator.groupingKey = result.getGroupingKey();
@@ -239,15 +236,12 @@ public class EtlFlinkJob {
                 accumulator.sensorType = result.getSensorType();
                 accumulator.measurementUnit = result.getMeasurementUnit();
                 accumulator.location = result.getLocation();
-                accumulator.diagnostics = new ArrayList<>();
             }
 
             Double value = (Double) result.getResult();
             if (value != null) {
                 accumulator.accumulate(value);
                 accumulator.count++;
-                accumulator.diagnostics.add(String.format("WINDOWED %s: %.2f contributing to %s",
-                        accumulator.aggregationType, value, accumulator.aggregationType));
             }
 
             return accumulator;
@@ -257,7 +251,6 @@ public class EtlFlinkJob {
         public EtlResult getResult(WindowAccumulator accumulator) {
             EtlResult result = new EtlResult();
             result.setJobId(accumulator.jobId);
-            result.setSource(accumulator.source);
             result.setTransformations(accumulator.transformations);
             result.setGroupingField(accumulator.groupingField);
             result.setGroupingKey(accumulator.groupingKey);
@@ -270,12 +263,6 @@ public class EtlFlinkJob {
             result.setMeasurementUnit(accumulator.measurementUnit);
             result.setLocation(accumulator.location);
 
-            List<String> diagnostics = new ArrayList<>(accumulator.diagnostics);
-            diagnostics.add(String.format("WINDOWED %s: %d values aggregated = %.2f",
-                    accumulator.aggregationType, accumulator.count, accumulator.getResult()));
-            diagnostics.add("Window: 3s tumbling window");
-            result.setDiagnostics(diagnostics);
-
             return result;
         }
 
@@ -285,7 +272,6 @@ public class EtlFlinkJob {
             a.count += b.count;
             if (b.max > a.max) a.max = b.max;
             if (b.min < a.min) a.min = b.min;
-            a.diagnostics.addAll(b.diagnostics);
             return a;
         }
     }
@@ -323,7 +309,6 @@ public class EtlFlinkJob {
 
     public static class WindowAccumulator {
         public String jobId;
-        public String source;
         public List<com.etl.flink.model.Transformation> transformations;
         public String groupingField;
         public String groupingKey;
@@ -332,7 +317,6 @@ public class EtlFlinkJob {
         public String sensorType;
         public String measurementUnit;
         public String location;
-        public List<String> diagnostics;
         public int count;
 
         public Double sum = 0.0;

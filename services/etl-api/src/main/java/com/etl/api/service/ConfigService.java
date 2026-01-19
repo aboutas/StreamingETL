@@ -76,20 +76,8 @@ public class ConfigService {
                 if (!VALID_TRANSFORMATIONS.contains(transformation.getType())) {
                     throw new IllegalArgumentException("Unknown transformation type: " + transformation.getType());
                 }
-
-                if (transformation.getWindow() != null && !isValidWindow(transformation.getWindow())) {
-                    throw new IllegalArgumentException("Invalid window format: " + transformation.getWindow() +
-                                                     ". Expected format: <number>[s|m|h] (e.g., 30s, 1m, 2h)");
-                }
             }
         }
-    }
-
-    private boolean isValidWindow(String window) {
-        if (window == null || window.isEmpty()) {
-            return false;
-        }
-        return window.matches("^\\d+[smh]$");
     }
 
     public void publishConfig(EtlConfig config) throws Exception {
