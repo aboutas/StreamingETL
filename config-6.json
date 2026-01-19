@@ -1,6 +1,5 @@
 {
   "jobId": "normalized-temp",
-  "source": "kafka://etl.input.v1",
   "transformations": [
     {
       "type": "filter_greater",

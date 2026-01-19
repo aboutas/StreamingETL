@@ -44,7 +44,9 @@
       "Bash(git checkout:*)",
       "Bash(do echo \"=== $file ===\")",
       "Bash(done)",
-      "Bash(git ls-tree:*)"
+      "Bash(git ls-tree:*)",
+      "Bash(xargs ls:*)",
+      "Bash(tree:*)"
     ],
     "deny": [],
     "ask": []
