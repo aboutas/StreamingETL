@@ -1,0 +1,13 @@
+Metric;Test 1;Test 2;Default Values;Test 3;Test 4;Tetst 5;Test 6;Tetst 7;Tetst 8
+Parallelism Level;4;4;4;4;4;4;4;4;4
+Active Configurations;4;4;4;4;4;4;4;4;4
+Input_topic (records);10K;100K;200K;400K;500K;800K;1M;2M;4M
+Output Topic;2702;27118;54273;109016;13607;219426;271719;543708;1087454
+Consumtion Time(s);28;28;32;48;53;61;77;143;263
+Notes!! for paral = 8;;;;;47;;73;134;260
+;;;;;;;;;
+;;;;;;;;;
+;;;;;;;;;
+;;;;;;;;;
+;;;;;;;;;
+;;;;;;;;;

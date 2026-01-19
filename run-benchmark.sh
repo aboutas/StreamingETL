@@ -471,9 +471,76 @@ while true; do
                 echo "=========================================="
                 echo "Total records in Kafka:  $TOTAL_RECORDS"
                 echo "Total records processed: $CURRENT_OFFSET"
-                echo "Duration:                ${DURATION}s"
-                echo "Parallelism:             $PARALLELISM"
-                echo "Throughput:              ${FINAL_THROUGHPUT} rec/sec"
+                echo ""
+
+                # OLD MEASUREMENT (includes init time)
+                echo "--- OLD MEASUREMENT (includes init time) ---"
+                echo "Duration (submit→done): ${DURATION}s"
+                echo "Throughput:             ${FINAL_THROUGHPUT} rec/sec"
+                echo ""
+
+                # NEW MEASUREMENT: Pure processing time from output topic timestamps
+                echo "--- NEW MEASUREMENT (pure processing time) ---"
+                echo "Reading output topic timestamps..."
+
+                # Get output topic record count
+                OUTPUT_RECORDS=$(bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+                    --broker-list $KAFKA_BROKER \
+                    --topic etl.output.v1 \
+                    --time -1 2>/dev/null | awk -F: '{sum += $3} END {print sum}')
+                echo "Output topic records: $OUTPUT_RECORDS"
+
+                # Get FIRST timestamp from output topic
+                FIRST_OUTPUT=$(bin/kafka-console-consumer.sh \
+                    --bootstrap-server $KAFKA_BROKER \
+                    --topic etl.output.v1 \
+                    --from-beginning \
+                    --property print.timestamp=true \
+                    --max-messages 1 2>/dev/null | head -1)
+
+                FIRST_TS=$(echo "$FIRST_OUTPUT" | grep -oP 'CreateTime:\K[0-9]+' || echo "")
+
+                if [ -z "$FIRST_TS" ]; then
+                    echo "  ⚠️  Could not get first timestamp from output topic"
+                else
+                    # Get LAST timestamp - read all and take the last one
+                    # Using timeout to avoid hanging
+                    LAST_TS=$(timeout 30 bin/kafka-console-consumer.sh \
+                        --bootstrap-server $KAFKA_BROKER \
+                        --topic etl.output.v1 \
+                        --from-beginning \
+                        --property print.timestamp=true \
+                        --timeout-ms 15000 2>/dev/null | \
+                        grep -oP 'CreateTime:\K[0-9]+' | tail -1)
+
+                    if [ -z "$LAST_TS" ]; then
+                        echo "  ⚠️  Could not get last timestamp from output topic"
+                    else
+                        # Calculate pure processing time
+                        PURE_PROCESSING_MS=$((LAST_TS - FIRST_TS))
+                        PURE_PROCESSING_SEC=$(awk "BEGIN {printf \"%.2f\", $PURE_PROCESSING_MS / 1000}")
+
+                        # Calculate pure throughput (input records / pure time)
+                        if [ "$PURE_PROCESSING_MS" -gt 0 ]; then
+                            PURE_THROUGHPUT=$(awk "BEGIN {printf \"%.2f\", $CURRENT_OFFSET / ($PURE_PROCESSING_MS / 1000)}")
+                        else
+                            PURE_THROUGHPUT="N/A"
+                        fi
+
+                        echo "First output timestamp:  $FIRST_TS"
+                        echo "Last output timestamp:   $LAST_TS"
+                        echo "Pure processing time:    ${PURE_PROCESSING_SEC}s"
+                        echo "Pure throughput:         ${PURE_THROUGHPUT} rec/sec"
+                        echo ""
+
+                        # Calculate init overhead
+                        INIT_OVERHEAD=$(awk "BEGIN {printf \"%.2f\", $DURATION - $PURE_PROCESSING_SEC}")
+                        INIT_PERCENT=$(awk "BEGIN {printf \"%.1f\", ($INIT_OVERHEAD / $DURATION) * 100}")
+                        echo "--- ANALYSIS ---"
+                        echo "Init overhead:           ${INIT_OVERHEAD}s (${INIT_PERCENT}% of total)"
+                        echo "Actual processing:       ${PURE_PROCESSING_SEC}s"
+                    fi
+                fi
                 echo ""
 
                 # Verify completeness
