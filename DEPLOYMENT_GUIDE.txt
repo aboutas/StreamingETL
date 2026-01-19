@@ -45,6 +45,7 @@ scp /home/thanasis/Documents/etl-flink-project/flink/target/etl-flink-1.0.0.jar 
 scp /home/thanasis/Documents/etl-flink-project/services/etl-api/target/etl-api-1.0.0.jar avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
 scp /home/thanasis/Documents/etl-flink-project/services/etl-file-producer/target/etl-file-producer-1.0.0.jar avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
 scp /home/thanasis/Documents/etl-flink-project/config-*.json avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
+scp /home/thanasis/Documents/etl-flink-project/config-test123.json avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
 
 ================================================================================
 STEP 3: CREATE KAFKA TOPICS

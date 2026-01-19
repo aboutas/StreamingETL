@@ -148,7 +148,7 @@ public class EtlFlinkJob {
                         result.getJobId() != null ? result.getJobId() : "unknown",
                         result.getAggregationType() != null ? result.getAggregationType() : "none"
                 ))
-                .window(TumblingProcessingTimeWindows.of(Time.seconds(10)))
+                .window(TumblingProcessingTimeWindows.of(Time.seconds(3)))
                 .aggregate(new WindowAggregator());
 
         // Union results
