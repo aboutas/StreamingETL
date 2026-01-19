@@ -109,7 +109,6 @@ public class MongoSink extends RichSinkFunction<EtlResult> {
         Document doc = new Document()
                 .append("_id", result.getId())
                 .append("jobId", result.getJobId())
-                .append("source", result.getSource())
                 .append("groupingField", result.getGroupingField())
                 .append("groupingKey", result.getGroupingKey())
                 .append("aggregationType", result.getAggregationType())
@@ -131,8 +130,7 @@ public class MongoSink extends RichSinkFunction<EtlResult> {
                 Document tDoc = new Document()
                         .append("type", t.getType())
                         .append("params", t.getParams())
-                        .append("keyBy", t.getKeyBy())
-                        .append("window", t.getWindow());
+                        .append("keyBy", t.getKeyBy());
                 transformationDocs.add(tDoc);
             }
             doc.append("transformations", transformationDocs);
@@ -147,10 +145,6 @@ public class MongoSink extends RichSinkFunction<EtlResult> {
         }
         if (result.getLocation() != null) {
             doc.append("location", result.getLocation());
-        }
-
-        if (result.getDiagnostics() != null && !result.getDiagnostics().isEmpty()) {
-            doc.append("diagnostics", result.getDiagnostics());
         }
 
         return doc;

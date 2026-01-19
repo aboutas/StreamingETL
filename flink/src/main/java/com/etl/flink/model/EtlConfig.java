@@ -11,9 +11,6 @@ public class EtlConfig implements Serializable {
     @JsonProperty("jobId")
     private String jobId;
 
-    @JsonProperty("source")
-    private String source;
-
     @JsonProperty("transformations")
     private List<Transformation> transformations;
 
@@ -28,14 +25,6 @@ public class EtlConfig implements Serializable {
 
     public void setJobId(String jobId) {
         this.jobId = jobId;
-    }
-
-    public String getSource() {
-        return source;
-    }
-
-    public void setSource(String source) {
-        this.source = source;
     }
 
     public List<Transformation> getTransformations() {
@@ -60,21 +49,19 @@ public class EtlConfig implements Serializable {
         if (o == null || getClass() != o.getClass()) return false;
         EtlConfig etlConfig = (EtlConfig) o;
         return Objects.equals(jobId, etlConfig.jobId) &&
-                Objects.equals(source, etlConfig.source) &&
                 Objects.equals(transformations, etlConfig.transformations) &&
                 Objects.equals(outputTopic, etlConfig.outputTopic);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(jobId, source, transformations, outputTopic);
+        return Objects.hash(jobId, transformations, outputTopic);
     }
 
     @Override
     public String toString() {
         return "EtlConfig{" +
                 "jobId='" + jobId + '\'' +
-                ", source='" + source + '\'' +
                 ", transformations=" + transformations +
                 ", outputTopic='" + outputTopic + '\'' +
                 '}';

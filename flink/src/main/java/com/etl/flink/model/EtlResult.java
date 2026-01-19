@@ -13,9 +13,6 @@ public class EtlResult {
     @JsonProperty("jobId")
     private String jobId;
 
-    @JsonProperty("source")
-    private String source;
-
     @JsonProperty("transformations")
     private List<Transformation> transformations;
 
@@ -39,9 +36,6 @@ public class EtlResult {
 
     @JsonProperty("result")
     private Object result;
-
-    @JsonProperty("diagnostics")
-    private List<String> diagnostics;
 
     @JsonProperty("processedAt")
     private Instant processedAt;
@@ -71,14 +65,6 @@ public class EtlResult {
 
     public void setJobId(String jobId) {
         this.jobId = jobId;
-    }
-
-    public String getSource() {
-        return source;
-    }
-
-    public void setSource(String source) {
-        this.source = source;
     }
 
     public List<Transformation> getTransformations() {
@@ -143,14 +129,6 @@ public class EtlResult {
 
     public void setResult(Object result) {
         this.result = result;
-    }
-
-    public List<String> getDiagnostics() {
-        return diagnostics;
-    }
-
-    public void setDiagnostics(List<String> diagnostics) {
-        this.diagnostics = diagnostics;
     }
 
     public Instant getProcessedAt() {

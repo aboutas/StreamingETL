@@ -13,7 +13,6 @@ import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
@@ -49,17 +48,10 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         // Emit configuration status result
         EtlResult configResult = new EtlResult();
         configResult.setJobId(config.getJobId());
-        configResult.setSource(config.getSource());
         configResult.setTransformations(config.getTransformations());
         configResult.setResult("Configuration registered successfully on subtask " +
                               getRuntimeContext().getIndexOfThisSubtask());
         configResult.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
-
-        List<String> diagnostics = new ArrayList<>();
-        diagnostics.add("Config registered for jobId: " + config.getJobId());
-        diagnostics.add("Processed on subtask: " + getRuntimeContext().getIndexOfThisSubtask());
-        diagnostics.add("Key group: " + getRuntimeContext().getIndexOfThisSubtask());
-        configResult.setDiagnostics(diagnostics);
 
         out.collect(configResult);
     }
@@ -92,12 +84,8 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
     }
 
     private void processEventWithConfig(SensorEvent event, EtlConfig config, Collector<EtlResult> out) throws Exception {
-        List<String> diagnostics = new ArrayList<>();
-        diagnostics.add("Processed on subtask: " + getRuntimeContext().getIndexOfThisSubtask());
-        diagnostics.add("Key group processing: " + getRuntimeContext().getIndexOfThisSubtask());
-
         if (config.getTransformations() == null || config.getTransformations().isEmpty()) {
-            createSimpleResult(event, config, diagnostics, out);
+            createSimpleResult(event, config, out);
             return;
         }
 
@@ -119,7 +107,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         // Process element transformations - these apply to all events first
         SensorEvent filteredEvent = event;
         for (Transformation transformation : elementTransformations) {
-            filteredEvent = applyElementTransformation(filteredEvent, transformation, diagnostics);
+            filteredEvent = applyElementTransformation(filteredEvent, transformation);
             if (filteredEvent == null) {
                 // If event doesn't pass element transformations, check if aggregations can still process original event
                 break;
@@ -130,7 +118,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         boolean hasValidAggregations = false;
         for (Transformation transformation : aggregationTransformations) {
             // For aggregations, use original event and let each transformation apply its own sensor filter
-            if (processWindowedAggregation(event, transformation, config, new ArrayList<>(diagnostics), out)) {
+            if (processWindowedAggregation(event, transformation, config, out)) {
                 hasValidAggregations = true;
             }
         }
@@ -140,19 +128,17 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
             // Aggregations were processed, no need to emit additional results
             if (!hasValidAggregations && filteredEvent != null) {
                 // Element transformations passed but no aggregations matched - emit filtered result
-                diagnostics.add("Element transformations passed, no matching aggregations for this sensor type");
-                createFinalResult(filteredEvent, config, diagnostics, out);
+                createFinalResult(filteredEvent, config, out);
             }
         } else if (filteredEvent != null) {
             // Only element transformations, emit the result
-            createFinalResult(filteredEvent, config, diagnostics, out);
+            createFinalResult(filteredEvent, config, out);
         }
         // If filteredEvent is null and no aggregations matched, the event is completely filtered out
     }
 
     private boolean processWindowedAggregation(SensorEvent event, Transformation transformation,
-                                          EtlConfig config, List<String> diagnostics,
-                                          Collector<EtlResult> out) {
+                                          EtlConfig config, Collector<EtlResult> out) {
 
         String field = getFieldFromParams(transformation.getParams(), "measurement");
         String sensorFilter = getSensorFromParams(transformation.getParams());
@@ -160,7 +146,6 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
 
         // Apply sensor filter if specified
         if (sensorFilter != null && !sensorFilter.equals(event.getSensor())) {
-            diagnostics.add("Aggregation skipped: sensor filter '" + sensorFilter + "' does not match event sensor '" + event.getSensor() + "'");
             return false; // Skip this event - wrong sensor type
         }
 
@@ -168,7 +153,6 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
 
         EtlResult result = new EtlResult();
         result.setJobId(config.getJobId());
-        result.setSource(config.getSource());
         result.setTransformations(config.getTransformations());
         result.setGroupingField(keyBy);
         result.setGroupingKey(groupingKey);
@@ -181,11 +165,6 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         result.setSensorType(event.getSensor());
         result.setMeasurementUnit(event.getMeasurementUnit());
         result.setLocation(event.getLocation());
-
-        diagnostics.add("Applied " + transformation.getType() + " aggregation - will be windowed downstream");
-        diagnostics.add("Contributing sensor: " + event.getSensor() + " (" + event.getMeasurementUnit() + ")");
-        diagnostics.add("From location: " + event.getLocation());
-        result.setDiagnostics(new ArrayList<>(diagnostics));
 
         out.collect(result);
         return true; // Successfully processed
@@ -204,22 +183,18 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         return "sum".equals(type) || "max".equals(type) || "min".equals(type) || "avg".equals(type);
     }
 
-    private SensorEvent applyElementTransformation(SensorEvent event, Transformation transformation,
-                                                 List<String> diagnostics) throws Exception {
+    private SensorEvent applyElementTransformation(SensorEvent event, Transformation transformation) throws Exception {
         try {
             var mapFunction = ElementTransformations.createTransformation(transformation.getType(), transformation.getParams());
             SensorEvent result = mapFunction.map(event);
 
-            if (result == null && ("filter_greater".equals(transformation.getType()) || "filter_less".equals(transformation.getType()))) {
-                diagnostics.add("Event filtered out by " + transformation.getType());
-            } else if (result != null) {
+            if (result != null) {
                 result.setJobId(event.getJobId());
-                diagnostics.add("Applied " + transformation.getType() + " transformation");
             }
 
             return result;
         } catch (Exception e) {
-            diagnostics.add("Element transformation error: " + e.getMessage());
+            LOG.warn("Element transformation error: {}", e.getMessage());
             return event;
         }
     }
@@ -281,11 +256,9 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
     }
 
 
-    private void createSimpleResult(SensorEvent event, EtlConfig config,
-                                  List<String> diagnostics, Collector<EtlResult> out) {
+    private void createSimpleResult(SensorEvent event, EtlConfig config, Collector<EtlResult> out) {
         EtlResult result = new EtlResult();
         result.setJobId(config.getJobId());
-        result.setSource(config.getSource());
         result.setTransformations(config.getTransformations());
         result.setGroupingField("sensor");
         result.setGroupingKey(event.getSensor());
@@ -296,18 +269,13 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         result.setSensorType(event.getSensor());
         result.setMeasurementUnit(event.getMeasurementUnit());
         result.setLocation(event.getLocation());
-
-        diagnostics.add("No transformations applied, returning original event");
-        result.setDiagnostics(diagnostics);
 
         out.collect(result);
     }
 
-    private void createFinalResult(SensorEvent event, EtlConfig config,
-                                 List<String> diagnostics, Collector<EtlResult> out) {
+    private void createFinalResult(SensorEvent event, EtlConfig config, Collector<EtlResult> out) {
         EtlResult result = new EtlResult();
         result.setJobId(config.getJobId());
-        result.setSource(config.getSource());
         result.setTransformations(config.getTransformations());
         result.setGroupingField("sensor");
         result.setGroupingKey(event.getSensor());
@@ -318,10 +286,6 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         result.setSensorType(event.getSensor());
         result.setMeasurementUnit(event.getMeasurementUnit());
         result.setLocation(event.getLocation());
-
-        if (!diagnostics.isEmpty()) {
-            result.setDiagnostics(new ArrayList<>(diagnostics));
-        }
 
         out.collect(result);
     }
@@ -329,7 +293,6 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
     private void emitErrorResult(SensorEvent event, EtlConfig config, Exception e, Collector<EtlResult> out) {
         EtlResult errorResult = new EtlResult();
         errorResult.setJobId(config.getJobId());
-        errorResult.setSource(config.getSource());
         errorResult.setTransformations(config.getTransformations());
         errorResult.setGroupingField("sensor");
         errorResult.setGroupingKey(event.getSensor());
@@ -341,9 +304,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         errorResult.setMeasurementUnit(event.getMeasurementUnit());
         errorResult.setLocation(event.getLocation());
 
-        List<String> diagnostics = new ArrayList<>();
-        diagnostics.add("Processing error on subtask " + getRuntimeContext().getIndexOfThisSubtask() + ": " + e.getMessage());
-        errorResult.setDiagnostics(diagnostics);
+        LOG.error("Processing error on subtask {}: {}", getRuntimeContext().getIndexOfThisSubtask(), e.getMessage());
 
         out.collect(errorResult);
     }
