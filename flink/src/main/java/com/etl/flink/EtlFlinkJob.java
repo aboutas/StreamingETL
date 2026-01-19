@@ -142,11 +142,8 @@ public class EtlFlinkJob {
         // Union all results
         DataStream<EtlResult> allResults = configResults.union(windowedResults);
 
-        // SINK 1: MongoDB (5th operator)
+        // SINK: MongoDB
         allResults.addSink(new MongoSink(mongoUri));
-
-        // SINK 2: stdout (6th operator)
-        allResults.print("ETL Results");
 
         LOG.info("Executing ETL Flink Job");
         env.execute("ETL Flink Job");
