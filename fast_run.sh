@@ -47,7 +47,6 @@ cd /home/avoutas/boutasThesis
 java -jar etl-file-producer-1.0.0.jar \
     --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
     --kafka.input.topic=etl.input.v1 \
-    --producer.mode=random \
     --producer.max.records=2000000
 
 
