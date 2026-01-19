@@ -150,10 +150,6 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
       - INPUT_TOPIC=etl.input.v1
       - RATE_PER_SEC=5
-      - DATA_FILE=/data/sensors.json
-      - PRODUCER_MODE=random
-    volumes:
-      - ./data:/data
     depends_on:
       kafka-init:
         condition: service_completed_successfully
