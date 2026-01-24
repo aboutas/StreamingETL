@@ -400,7 +400,8 @@ echo "=========================================="
 
 PREV_OFFSET=0
 STABLE_COUNT=0
-COMPLETION_TIME=0
+FIRST_PROCESS_TIME=0
+LAST_PROCESS_TIME=0
 LAST_PROGRESS_TIME=$(date +%s)
 
 while true; do
@@ -414,7 +415,6 @@ while true; do
 
     # Skip if not available
     if [ -z "$CURRENT_OFFSET" ]; then
-        echo "$(date '+%Y-%m-%d %H:%M:%S'): Consumer group unavailable, retrying..."
         sleep 1
         continue
     fi
@@ -428,13 +428,10 @@ while true; do
         awk '{sum += $5} END {print sum}')
 
     CURRENT_TIME=$(date +%s)
-    ELAPSED=$((CURRENT_TIME - START_TIME))
 
-    # Calculate throughput
-    if [ $ELAPSED -gt 0 ]; then
-        THROUGHPUT=$(awk "BEGIN {printf \"%.2f\", $CURRENT_OFFSET/$ELAPSED}")
-    else
-        THROUGHPUT="0.00"
+    # Capture FIRST processing time (when we first see offset > 0)
+    if [ "$FIRST_PROCESS_TIME" -eq 0 ] && [ "$CURRENT_OFFSET" -gt 0 ]; then
+        FIRST_PROCESS_TIME=$CURRENT_TIME
     fi
 
     # Calculate percentage
@@ -444,7 +441,7 @@ while true; do
         PERCENT="0.0"
     fi
 
-    echo "$(date '+%H:%M:%S'): Offset=$CURRENT_OFFSET | Lag=$TOTAL_LAG | Progress=${PERCENT}% | Throughput=${THROUGHPUT} rec/s | Elapsed=${ELAPSED}s"
+    echo "$(date '+%H:%M:%S'): Offset=$CURRENT_OFFSET | Lag=$TOTAL_LAG | Progress=${PERCENT}%"
 
     # Check for progress
     if [ "$CURRENT_OFFSET" != "$PREV_OFFSET" ]; then
@@ -457,118 +454,27 @@ while true; do
 
             # Record completion time on first detection
             if [ $STABLE_COUNT -eq 1 ]; then
-                COMPLETION_TIME=$CURRENT_TIME
+                LAST_PROCESS_TIME=$CURRENT_TIME
             fi
 
             # Confirm stable for 5 seconds
             if [ $STABLE_COUNT -ge 5 ]; then
-                DURATION=$((COMPLETION_TIME - START_TIME))
-                FINAL_THROUGHPUT=$(awk "BEGIN {printf \"%.2f\", $CURRENT_OFFSET/$DURATION}")
+                # Calculate PURE processing time
+                PURE_TIME=$((LAST_PROCESS_TIME - FIRST_PROCESS_TIME))
+                if [ "$PURE_TIME" -gt 0 ]; then
+                    PURE_THROUGHPUT=$(awk "BEGIN {printf \"%.0f\", $TOTAL_RECORDS / $PURE_TIME}")
+                else
+                    PURE_THROUGHPUT=0
+                fi
 
                 echo ""
                 echo "=========================================="
-                echo "✅ CONSUMPTION COMPLETED"
+                echo "RESULT"
                 echo "=========================================="
-                echo "Total records in Kafka:  $TOTAL_RECORDS"
-                echo "Total records processed: $CURRENT_OFFSET"
-                echo ""
-
-                # OLD MEASUREMENT (includes init time)
-                echo "--- OLD MEASUREMENT (includes init time) ---"
-                echo "Duration (submit→done): ${DURATION}s"
-                echo "Throughput:             ${FINAL_THROUGHPUT} rec/sec"
-                echo ""
-
-                # NEW MEASUREMENT: Pure processing time from output topic timestamps
-                echo "--- NEW MEASUREMENT (pure processing time) ---"
-                echo "Reading output topic timestamps..."
-
-                # Get output topic record count
-                OUTPUT_RECORDS=$(bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
-                    --broker-list $KAFKA_BROKER \
-                    --topic etl.output.v1 \
-                    --time -1 2>/dev/null | awk -F: '{sum += $3} END {print sum}')
-                echo "Output topic records: $OUTPUT_RECORDS"
-
-                # Get FIRST timestamp from output topic
-                FIRST_OUTPUT=$(bin/kafka-console-consumer.sh \
-                    --bootstrap-server $KAFKA_BROKER \
-                    --topic etl.output.v1 \
-                    --from-beginning \
-                    --property print.timestamp=true \
-                    --max-messages 1 2>/dev/null | head -1)
-
-                FIRST_TS=$(echo "$FIRST_OUTPUT" | grep -oP 'CreateTime:\K[0-9]+' || echo "")
-
-                if [ -z "$FIRST_TS" ]; then
-                    echo "  ⚠️  Could not get first timestamp from output topic"
-                else
-                    # Get LAST timestamp - read all and take the last one
-                    # Using timeout to avoid hanging
-                    LAST_TS=$(timeout 30 bin/kafka-console-consumer.sh \
-                        --bootstrap-server $KAFKA_BROKER \
-                        --topic etl.output.v1 \
-                        --from-beginning \
-                        --property print.timestamp=true \
-                        --timeout-ms 15000 2>/dev/null | \
-                        grep -oP 'CreateTime:\K[0-9]+' | tail -1)
-
-                    if [ -z "$LAST_TS" ]; then
-                        echo "  ⚠️  Could not get last timestamp from output topic"
-                    else
-                        # Calculate pure processing time
-                        PURE_PROCESSING_MS=$((LAST_TS - FIRST_TS))
-                        PURE_PROCESSING_SEC=$(awk "BEGIN {printf \"%.2f\", $PURE_PROCESSING_MS / 1000}")
-
-                        # Calculate pure throughput (input records / pure time)
-                        if [ "$PURE_PROCESSING_MS" -gt 0 ]; then
-                            PURE_THROUGHPUT=$(awk "BEGIN {printf \"%.2f\", $CURRENT_OFFSET / ($PURE_PROCESSING_MS / 1000)}")
-                        else
-                            PURE_THROUGHPUT="N/A"
-                        fi
-
-                        echo "First output timestamp:  $FIRST_TS"
-                        echo "Last output timestamp:   $LAST_TS"
-                        echo "Pure processing time:    ${PURE_PROCESSING_SEC}s"
-                        echo "Pure throughput:         ${PURE_THROUGHPUT} rec/sec"
-                        echo ""
-
-                        # Calculate init overhead
-                        INIT_OVERHEAD=$(awk "BEGIN {printf \"%.2f\", $DURATION - $PURE_PROCESSING_SEC}")
-                        INIT_PERCENT=$(awk "BEGIN {printf \"%.1f\", ($INIT_OVERHEAD / $DURATION) * 100}")
-                        echo "--- ANALYSIS ---"
-                        echo "Init overhead:           ${INIT_OVERHEAD}s (${INIT_PERCENT}% of total)"
-                        echo "Actual processing:       ${PURE_PROCESSING_SEC}s"
-                    fi
-                fi
-                echo ""
-
-                # Verify completeness
-                if [ "$CURRENT_OFFSET" -eq "$TOTAL_RECORDS" ]; then
-                    echo "Status:                  ✅ COMPLETE (100%)"
-                    echo "=========================================="
-                    echo ""
-                    echo "🎯 Perfect benchmark! All records consumed."
-                else
-                    MISSING=$((TOTAL_RECORDS - CURRENT_OFFSET))
-                    PERCENT=$(awk "BEGIN {printf \"%.2f\", ($CURRENT_OFFSET/$TOTAL_RECORDS)*100}")
-                    echo "Status:                  ⚠️  INCOMPLETE (${PERCENT}%)"
-                    echo "Missing records:         $MISSING"
-                    echo "=========================================="
-                    echo ""
-                    echo "⚠️  Possible causes of incomplete consumption:"
-                    echo "  1. Checkpoint restoration (job resumed from old state)"
-                    echo "  2. Kafka topic was not clean before starting"
-                    echo "  3. Consumer group was not fully reset"
-                    echo ""
-                    echo "Solutions:"
-                    echo "  - Run: ./clean-flink-state.sh (manual cleanup)"
-                    echo "  - Or rebuild job with checkpointing disabled"
-                    echo "  - Check: http://clu01.softnet.tuc.gr:8081"
-                fi
-                echo ""
-                echo "Flink dashboard: http://clu01.softnet.tuc.gr:8081/jobs/$JOB_ID"
-                echo ""
+                echo "Records:      $TOTAL_RECORDS"
+                echo "Pure time:    ${PURE_TIME} seconds"
+                echo "Throughput:   ${PURE_THROUGHPUT} rec/sec"
+                echo "=========================================="
                 break
             fi
         fi
@@ -579,18 +485,7 @@ while true; do
     if [ $TIME_SINCE_PROGRESS -gt 60 ] && [ "$CURRENT_OFFSET" != "0" ]; then
         echo ""
         echo "=========================================="
-        echo "⚠️  TIMEOUT: No progress for 60 seconds"
-        echo "=========================================="
-        echo "Last offset:             $CURRENT_OFFSET"
-        echo "Total in Kafka:          $TOTAL_RECORDS"
-        echo "Remaining:               $((TOTAL_RECORDS - CURRENT_OFFSET))"
-        echo ""
-        echo "Possible issues:"
-        echo "  - Flink job failed (check dashboard)"
-        echo "  - Processing bottleneck"
-        echo "  - Kafka consumer lag stuck"
-        echo ""
-        echo "Flink dashboard: http://clu01.softnet.tuc.gr:8081/jobs/$JOB_ID"
+        echo "TIMEOUT: No progress for 60 seconds"
         echo "=========================================="
         break
     fi
