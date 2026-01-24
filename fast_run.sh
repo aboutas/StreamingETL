@@ -47,6 +47,11 @@ bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication
 bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication-factor 2 --partitions 4 --topic etl.config.v1
 bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication-factor 2 --partitions 4 --topic etl.output.v1
 
+# Check records in topics
+bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list clu02.softnet.tuc.gr:6667 --topic etl.input.v1 --time -1 | awk -F: '{sum += $3} END {print sum}'
+bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list clu02.softnet.tuc.gr:6667 --topic etl.config.v1 --time -1 | awk -F: '{sum += $3} END {print sum}'
+bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list clu02.softnet.tuc.gr:6667 --topic etl.output.v1 --time -1 | awk -F: '{sum += $3} END {print sum}'
+
 ################################################################################
 # PHASE 5: START API & SUBMIT CONFIGS
 ################################################################################
