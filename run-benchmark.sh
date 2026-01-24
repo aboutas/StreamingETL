@@ -107,45 +107,54 @@ done
 echo ""
 echo "Reading markers from output topic..."
 
-# Read output topic and find markers
-START_PROCESSED=$(bin/kafka-console-consumer.sh \
+# Save output to temp file (with timeout to prevent hanging)
+TEMP_FILE="/tmp/benchmark_output_$$"
+timeout 20 bin/kafka-console-consumer.sh \
     --bootstrap-server $KAFKA_BROKER \
     --topic etl.output.v1 \
     --from-beginning \
-    --timeout-ms 10000 2>/dev/null | grep "BENCHMARK_START" | head -1 | grep -o '"processedAt":"[^"]*"' | cut -d'"' -f4)
+    --timeout-ms 10000 > "$TEMP_FILE" 2>/dev/null || true
 
-END_PROCESSED=$(bin/kafka-console-consumer.sh \
-    --bootstrap-server $KAFKA_BROKER \
-    --topic etl.output.v1 \
-    --from-beginning \
-    --timeout-ms 10000 2>/dev/null | grep "BENCHMARK_END" | head -1 | grep -o '"processedAt":"[^"]*"' | cut -d'"' -f4)
+# Find markers in temp file (processedAt is epoch seconds with decimals)
+START_LINE=$(grep "BENCHMARK_START" "$TEMP_FILE" | head -1)
+END_LINE=$(grep "BENCHMARK_END" "$TEMP_FILE" | head -1)
 
-echo "START marker processedAt: $START_PROCESSED"
-echo "END marker processedAt:   $END_PROCESSED"
+# Extract processedAt values (format: "processedAt":1234567890.123)
+START_EPOCH=$(echo "$START_LINE" | grep -o '"processedAt":[0-9]*' | cut -d':' -f2)
+END_EPOCH=$(echo "$END_LINE" | grep -o '"processedAt":[0-9]*' | cut -d':' -f2)
 
-if [ -n "$START_PROCESSED" ] && [ -n "$END_PROCESSED" ]; then
-    # Convert ISO timestamps to epoch seconds
-    START_EPOCH=$(date -d "$START_PROCESSED" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%S" "${START_PROCESSED%.*}" +%s 2>/dev/null)
-    END_EPOCH=$(date -d "$END_PROCESSED" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%S" "${END_PROCESSED%.*}" +%s 2>/dev/null)
+rm -f "$TEMP_FILE"
 
+echo "START marker epoch: $START_EPOCH"
+echo "END marker epoch:   $END_EPOCH"
+
+if [ -n "$START_EPOCH" ] && [ -n "$END_EPOCH" ]; then
     PURE_TIME=$((END_EPOCH - START_EPOCH))
+
+    # Calculate measured records (total minus warmup)
+    MEASURED_RECORDS=$((TOTAL_RECORDS - 5002))  # 5000 warmup + 2 markers
+
     if [ "$PURE_TIME" -gt 0 ]; then
-        THROUGHPUT=$((TOTAL_RECORDS / PURE_TIME))
+        THROUGHPUT=$((MEASURED_RECORDS / PURE_TIME))
     else
         THROUGHPUT=0
     fi
 
     echo ""
     echo "=========================================="
-    echo "RESULT (from Flink processedAt)"
+    echo "RESULT (Pure Flink Processing Time)"
     echo "=========================================="
-    echo "Records:      $TOTAL_RECORDS"
-    echo "Pure time:    $PURE_TIME seconds"
-    echo "Throughput:   $THROUGHPUT rec/sec"
+    echo "Total records:    $TOTAL_RECORDS"
+    echo "Measured records: $MEASURED_RECORDS (excluding warmup)"
+    echo "Pure time:        $PURE_TIME seconds"
+    echo "Throughput:       $THROUGHPUT rec/sec"
     echo "=========================================="
 else
     echo ""
-    echo "ERROR: Could not find markers in output topic"
-    echo "START: $START_PROCESSED"
-    echo "END: $END_PROCESSED"
+    echo "=========================================="
+    echo "ERROR: Could not find markers in output"
+    echo "=========================================="
+    echo "Make sure to delete topics before running!"
+    echo "START found: $([ -n "$START_EPOCH" ] && echo 'YES' || echo 'NO')"
+    echo "END found:   $([ -n "$END_EPOCH" ] && echo 'YES' || echo 'NO')"
 fi

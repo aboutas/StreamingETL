@@ -90,13 +90,28 @@ public class FileProducerService {
                 long intervalMs = 1000L / ratePerSec;
                 long messageCount = 0;
 
-                // Send START marker as first record (for benchmark timing)
+                // Send WARMUP records first (allows Flink to load configs before START marker)
                 if (maxRecords > 0) {
+                    int warmupCount = 5000;
+                    LOG.info("Sending {} warmup records (these may be dropped - this is expected)...", warmupCount);
+                    for (int w = 0; w < warmupCount && messageCount < maxRecords - 2; w++) {
+                        String[] warmupData = generateComprehensiveSensorData();
+                        for (String data : warmupData) {
+                            if (data != null && !data.trim().isEmpty() && messageCount < maxRecords - 2) {
+                                kafkaProducer.send(new ProducerRecord<>(inputTopic, generateKey(data), data));
+                                messageCount++;
+                            }
+                        }
+                    }
+                    kafkaProducer.flush();
+                    LOG.info("Warmup complete. {} records sent.", messageCount);
+
+                    // NOW send START marker (configs should be loaded by now)
                     String startMarker = createBenchmarkMarker("BENCHMARK_START");
-                    ProducerRecord<String, String> startRecord = new ProducerRecord<>(inputTopic, "benchmark", startMarker);
-                    kafkaProducer.send(startRecord).get(); // Synchronous to ensure it's first
+                    ProducerRecord<String, String> startRecord = new ProducerRecord<>(inputTopic, "temperature", startMarker);
+                    kafkaProducer.send(startRecord).get();
                     messageCount++;
-                    LOG.info(">>> BENCHMARK START marker sent (record 1 of {})", maxRecords);
+                    LOG.info(">>> BENCHMARK START marker sent (record {} of {})", messageCount, maxRecords);
                 }
 
                 while (running.get() && (maxRecords == -1 || messageCount < maxRecords - 1)) { // -1 for END marker
@@ -149,8 +164,8 @@ public class FileProducerService {
                 // Send END marker as last record (for benchmark timing)
                 if (maxRecords > 0) {
                     String endMarker = createBenchmarkMarker("BENCHMARK_END");
-                    ProducerRecord<String, String> endRecord = new ProducerRecord<>(inputTopic, "benchmark", endMarker);
-                    kafkaProducer.send(endRecord).get(); // Synchronous to ensure it's last
+                    ProducerRecord<String, String> endRecord = new ProducerRecord<>(inputTopic, "temperature", endMarker);
+                    kafkaProducer.send(endRecord).get();
                     messageCount++;
                     LOG.info(">>> BENCHMARK END marker sent (record {} of {})", messageCount, maxRecords);
                 }
