@@ -78,9 +78,6 @@ echo "=========================================="
 
 cd /usr/hdp/current/kafka-broker
 FIRST_TIME=0
-LAST_TIME=0
-PREV_OFFSET=0
-STABLE=0
 
 while true; do
     OFFSET=$(bin/kafka-consumer-groups.sh \
@@ -88,43 +85,24 @@ while true; do
         --group $CONSUMER_GROUP \
         --describe 2>/dev/null | grep etl.input.v1 | awk '{sum+=$3}END{print sum}')
 
-    LAG=$(bin/kafka-consumer-groups.sh \
-        --bootstrap-server $KAFKA_BROKER \
-        --group $CONSUMER_GROUP \
-        --describe 2>/dev/null | grep etl.input.v1 | awk '{sum+=$5}END{print sum}')
-
     [ -z "$OFFSET" ] && sleep 1 && continue
-    [ -z "$LAG" ] && LAG=0
 
     NOW=$(date +%s)
 
     # First time we see offset > 0
     if [ "$FIRST_TIME" -eq 0 ] && [ "$OFFSET" -gt 0 ]; then
         FIRST_TIME=$NOW
-        FIRST_OFFSET=$OFFSET
     fi
 
-    # Progress
-    if [ "$TOTAL_RECORDS" -gt 0 ]; then
-        PERCENT=$((OFFSET * 100 / TOTAL_RECORDS))
-    else
-        PERCENT=0
+    PERCENT=$((OFFSET * 100 / TOTAL_RECORDS))
+    echo "$(date '+%H:%M:%S'): Offset=$OFFSET / $TOTAL_RECORDS | Progress=$PERCENT%"
+
+    # Done when offset reaches total
+    if [ "$OFFSET" -ge "$TOTAL_RECORDS" ]; then
+        LAST_TIME=$NOW
+        break
     fi
 
-    echo "$(date '+%H:%M:%S'): Offset=$OFFSET | Lag=$LAG | Progress=$PERCENT%"
-
-    # Check if done
-    if [ "$OFFSET" -eq "$PREV_OFFSET" ] && [ "$OFFSET" -gt 0 ]; then
-        STABLE=$((STABLE + 1))
-        if [ "$STABLE" -ge 5 ]; then
-            LAST_TIME=$NOW
-            break
-        fi
-    else
-        STABLE=0
-    fi
-
-    PREV_OFFSET=$OFFSET
     sleep 1
 done
 
