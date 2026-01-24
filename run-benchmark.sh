@@ -107,23 +107,20 @@ done
 echo ""
 echo "Reading markers from output topic..."
 
-# Save output to temp file (increased timeout for large record counts)
-TEMP_FILE="/tmp/benchmark_output_$$"
-timeout 120 bin/kafka-console-consumer.sh \
+# Get all marker lines directly (no temp file - more reliable)
+MARKERS=$(timeout 180 bin/kafka-console-consumer.sh \
     --bootstrap-server $KAFKA_BROKER \
     --topic etl.output.v1 \
     --from-beginning \
-    --timeout-ms 30000 > "$TEMP_FILE" 2>/dev/null || true
+    --timeout-ms 60000 2>/dev/null | grep -i "benchmark" || true)
 
-# Find markers in temp file (use -i for case-insensitive because to_lowercase transforms location)
-START_LINE=$(grep -i "benchmark_start" "$TEMP_FILE" | head -1)
-END_LINE=$(grep -i "benchmark_end" "$TEMP_FILE" | head -1)
+# Find START and END markers
+START_LINE=$(echo "$MARKERS" | grep -i "benchmark_start" | head -1)
+END_LINE=$(echo "$MARKERS" | grep -i "benchmark_end" | tail -1)
 
 # Extract processedAt values (format: "processedAt":1234567890.123)
 START_EPOCH=$(echo "$START_LINE" | grep -o '"processedAt":[0-9]*' | cut -d':' -f2)
 END_EPOCH=$(echo "$END_LINE" | grep -o '"processedAt":[0-9]*' | cut -d':' -f2)
-
-rm -f "$TEMP_FILE"
 
 echo "START marker epoch: $START_EPOCH"
 echo "END marker epoch:   $END_EPOCH"
