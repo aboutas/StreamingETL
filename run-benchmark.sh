@@ -270,9 +270,34 @@ echo "  ✓ Consumer group reset"
 echo ""
 
 ################################################################################
-# STEP 4: VERIFY KAFKA TOPICS
+# STEP 4: CLEAN OUTPUT TOPIC
 ################################################################################
-echo "[4/7] Verifying Kafka topics..."
+echo "[4/8] Cleaning output topic..."
+cd /usr/hdp/current/kafka-broker
+bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.output.v1 2>/dev/null || true
+sleep 3
+bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication-factor 2 --partitions 4 --topic etl.output.v1 2>/dev/null || true
+echo "  ✓ Output topic cleaned"
+echo ""
+
+################################################################################
+# STEP 5: RESET INPUT TOPIC OFFSETS
+################################################################################
+echo "[5/8] Resetting input topic offsets to beginning..."
+bin/kafka-consumer-groups.sh \
+    --bootstrap-server $KAFKA_BROKER \
+    --group $CONSUMER_GROUP \
+    --topic etl.input.v1 \
+    --reset-offsets \
+    --to-earliest \
+    --execute 2>/dev/null || true
+echo "  ✓ Offsets reset to beginning"
+echo ""
+
+################################################################################
+# STEP 6: VERIFY KAFKA TOPICS
+################################################################################
+echo "[6/8] Verifying Kafka topics..."
 cd /usr/hdp/current/kafka-broker
 
 # Get total records in input topic
@@ -296,9 +321,9 @@ fi
 echo ""
 
 ################################################################################
-# STEP 5: SUBMIT FLINK JOB
+# STEP 7: SUBMIT FLINK JOB
 ################################################################################
-echo "[5/7] Submitting Flink job..."
+echo "[7/8] Submitting Flink job..."
 START_TIME=$(date +%s)
 echo "  Start time: $(date -d @$START_TIME)"
 
@@ -324,9 +349,9 @@ rm -f /tmp/flink_submit_$$.log
 echo ""
 
 ################################################################################
-# STEP 6: WAIT FOR JOB INITIALIZATION
+# STEP 8: WAIT FOR JOB INITIALIZATION
 ################################################################################
-echo "[6/7] Waiting for job initialization..."
+echo "[8/8] Waiting for job initialization..."
 # Dynamic wait based on parallelism: 10s base + 1.5s per parallelism
 INIT_WAIT=$((10 + PARALLELISM * 3 / 2))
 echo "  Wait time: ${INIT_WAIT}s (based on parallelism=$PARALLELISM)"
@@ -393,9 +418,9 @@ fi
 echo ""
 
 ################################################################################
-# STEP 7: MONITOR CONSUMPTION
+# MONITORING CONSUMPTION
 ################################################################################
-echo "[7/7] Monitoring consumption progress..."
+echo "Monitoring consumption progress..."
 echo "=========================================="
 
 PREV_OFFSET=0
