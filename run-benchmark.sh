@@ -1,6 +1,3 @@
-cd /home/avoutas/boutasThesis
-
-cat > run-benchmark.sh << 'SCRIPT'
 #!/bin/bash
 
 ################################################################################
@@ -122,6 +119,3 @@ echo "Records:      $TOTAL_RECORDS"
 echo "Pure time:    $PURE_TIME seconds"
 echo "Throughput:   $THROUGHPUT rec/sec"
 echo "=========================================="
-SCRIPT
-
-chmod +x run-benchmark.sh
