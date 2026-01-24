@@ -90,7 +90,16 @@ public class FileProducerService {
                 long intervalMs = 1000L / ratePerSec;
                 long messageCount = 0;
 
-                while (running.get() && (maxRecords == -1 || messageCount < maxRecords)) {
+                // Send START marker as first record (for benchmark timing)
+                if (maxRecords > 0) {
+                    String startMarker = createBenchmarkMarker("BENCHMARK_START");
+                    ProducerRecord<String, String> startRecord = new ProducerRecord<>(inputTopic, "benchmark", startMarker);
+                    kafkaProducer.send(startRecord).get(); // Synchronous to ensure it's first
+                    messageCount++;
+                    LOG.info(">>> BENCHMARK START marker sent (record 1 of {})", maxRecords);
+                }
+
+                while (running.get() && (maxRecords == -1 || messageCount < maxRecords - 1)) { // -1 for END marker
                     try {
                         // Check if max records limit reached
                         if (maxRecords > 0 && messageCount >= maxRecords) {
@@ -135,6 +144,15 @@ public class FileProducerService {
                         LOG.error("Error generating comprehensive sensor data", e);
                         Thread.sleep(1000);
                     }
+                }
+
+                // Send END marker as last record (for benchmark timing)
+                if (maxRecords > 0) {
+                    String endMarker = createBenchmarkMarker("BENCHMARK_END");
+                    ProducerRecord<String, String> endRecord = new ProducerRecord<>(inputTopic, "benchmark", endMarker);
+                    kafkaProducer.send(endRecord).get(); // Synchronous to ensure it's last
+                    messageCount++;
+                    LOG.info(">>> BENCHMARK END marker sent (record {} of {})", messageCount, maxRecords);
                 }
 
                 if (maxRecords > 0 && messageCount >= maxRecords) {
@@ -219,6 +237,23 @@ public class FileProducerService {
         } catch (Exception e) {
             LOG.error("Error creating comprehensive sensor data", e);
             return new String[]{"{\"error\":\"Failed to generate comprehensive data\"}"};
+        }
+    }
+
+    private String createBenchmarkMarker(String location) {
+        try {
+            String timestamp = ZonedDateTime.now(GREEK_TIMEZONE).truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toInstant().toString();
+            com.fasterxml.jackson.databind.node.ObjectNode jsonObject = objectMapper.createObjectNode();
+            jsonObject.put("sensor", "temperature");
+            jsonObject.put("measurement", 50.0);
+            jsonObject.put("measurement_unit", "Celsius");
+            jsonObject.put("datetime", timestamp);
+            jsonObject.put("location", location);
+            jsonObject.put("data_quality", "excellent");
+            return objectMapper.writeValueAsString(jsonObject);
+        } catch (Exception e) {
+            LOG.error("Error creating benchmark marker", e);
+            return "{\"sensor\":\"temperature\",\"measurement\":50.0,\"location\":\"" + location + "\"}";
         }
     }
 

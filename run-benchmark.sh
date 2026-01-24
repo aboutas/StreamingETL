@@ -103,19 +103,49 @@ while true; do
     sleep 1
 done
 
-# RESULT
-PURE_TIME=$((LAST_TIME - FIRST_TIME))
-if [ "$PURE_TIME" -gt 0 ]; then
-    THROUGHPUT=$((TOTAL_RECORDS / PURE_TIME))
-else
-    THROUGHPUT=0
-fi
-
+# RESULT FROM MARKERS
 echo ""
-echo "=========================================="
-echo "RESULT"
-echo "=========================================="
-echo "Records:      $TOTAL_RECORDS"
-echo "Pure time:    $PURE_TIME seconds"
-echo "Throughput:   $THROUGHPUT rec/sec"
-echo "=========================================="
+echo "Reading markers from output topic..."
+
+# Read output topic and find markers
+START_PROCESSED=$(bin/kafka-console-consumer.sh \
+    --bootstrap-server $KAFKA_BROKER \
+    --topic etl.output.v1 \
+    --from-beginning \
+    --timeout-ms 10000 2>/dev/null | grep "BENCHMARK_START" | head -1 | grep -o '"processedAt":"[^"]*"' | cut -d'"' -f4)
+
+END_PROCESSED=$(bin/kafka-console-consumer.sh \
+    --bootstrap-server $KAFKA_BROKER \
+    --topic etl.output.v1 \
+    --from-beginning \
+    --timeout-ms 10000 2>/dev/null | grep "BENCHMARK_END" | head -1 | grep -o '"processedAt":"[^"]*"' | cut -d'"' -f4)
+
+echo "START marker processedAt: $START_PROCESSED"
+echo "END marker processedAt:   $END_PROCESSED"
+
+if [ -n "$START_PROCESSED" ] && [ -n "$END_PROCESSED" ]; then
+    # Convert ISO timestamps to epoch seconds
+    START_EPOCH=$(date -d "$START_PROCESSED" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%S" "${START_PROCESSED%.*}" +%s 2>/dev/null)
+    END_EPOCH=$(date -d "$END_PROCESSED" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%S" "${END_PROCESSED%.*}" +%s 2>/dev/null)
+
+    PURE_TIME=$((END_EPOCH - START_EPOCH))
+    if [ "$PURE_TIME" -gt 0 ]; then
+        THROUGHPUT=$((TOTAL_RECORDS / PURE_TIME))
+    else
+        THROUGHPUT=0
+    fi
+
+    echo ""
+    echo "=========================================="
+    echo "RESULT (from Flink processedAt)"
+    echo "=========================================="
+    echo "Records:      $TOTAL_RECORDS"
+    echo "Pure time:    $PURE_TIME seconds"
+    echo "Throughput:   $THROUGHPUT rec/sec"
+    echo "=========================================="
+else
+    echo ""
+    echo "ERROR: Could not find markers in output topic"
+    echo "START: $START_PROCESSED"
+    echo "END: $END_PROCESSED"
+fi
