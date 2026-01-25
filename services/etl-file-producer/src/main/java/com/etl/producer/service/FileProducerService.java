@@ -16,10 +16,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PreDestroy;
-import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Properties;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -90,31 +88,7 @@ public class FileProducerService {
                 long intervalMs = 1000L / ratePerSec;
                 long messageCount = 0;
 
-                // Send WARMUP records first (allows Flink to load configs before START marker)
-                if (maxRecords > 0) {
-                    int warmupCount = 5000;
-                    LOG.info("Sending {} warmup records (these may be dropped - this is expected)...", warmupCount);
-                    for (int w = 0; w < warmupCount && messageCount < maxRecords - 2; w++) {
-                        String[] warmupData = generateComprehensiveSensorData();
-                        for (String data : warmupData) {
-                            if (data != null && !data.trim().isEmpty() && messageCount < maxRecords - 2) {
-                                kafkaProducer.send(new ProducerRecord<>(inputTopic, generateKey(data), data));
-                                messageCount++;
-                            }
-                        }
-                    }
-                    kafkaProducer.flush();
-                    LOG.info("Warmup complete. {} records sent.", messageCount);
-
-                    // NOW send START marker (configs should be loaded by now)
-                    String startMarker = createBenchmarkMarker("BENCHMARK_START");
-                    ProducerRecord<String, String> startRecord = new ProducerRecord<>(inputTopic, "temperature", startMarker);
-                    kafkaProducer.send(startRecord).get();
-                    messageCount++;
-                    LOG.info(">>> BENCHMARK START marker sent (record {} of {})", messageCount, maxRecords);
-                }
-
-                while (running.get() && (maxRecords == -1 || messageCount < maxRecords - 1)) { // -1 for END marker
+                while (running.get() && (maxRecords == -1 || messageCount < maxRecords)) {
                     try {
                         // Check if max records limit reached
                         if (maxRecords > 0 && messageCount >= maxRecords) {
@@ -161,17 +135,8 @@ public class FileProducerService {
                     }
                 }
 
-                // Send END marker as last record (for benchmark timing)
-                if (maxRecords > 0) {
-                    String endMarker = createBenchmarkMarker("BENCHMARK_END");
-                    ProducerRecord<String, String> endRecord = new ProducerRecord<>(inputTopic, "temperature", endMarker);
-                    kafkaProducer.send(endRecord).get();
-                    messageCount++;
-                    LOG.info(">>> BENCHMARK END marker sent (record {} of {})", messageCount, maxRecords);
-                }
-
                 if (maxRecords > 0 && messageCount >= maxRecords) {
-                    LOG.info("✅ Random data production COMPLETED. Sent exactly {} records (max limit reached).", messageCount);
+                    LOG.info("Random data production COMPLETED. Sent exactly {} records (max limit reached).", messageCount);
                     shutdownApplication();
                 } else {
                     LOG.info("Comprehensive data production completed. Total messages sent: {}", messageCount);
@@ -252,23 +217,6 @@ public class FileProducerService {
         } catch (Exception e) {
             LOG.error("Error creating comprehensive sensor data", e);
             return new String[]{"{\"error\":\"Failed to generate comprehensive data\"}"};
-        }
-    }
-
-    private String createBenchmarkMarker(String location) {
-        try {
-            String timestamp = ZonedDateTime.now(GREEK_TIMEZONE).truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toInstant().toString();
-            com.fasterxml.jackson.databind.node.ObjectNode jsonObject = objectMapper.createObjectNode();
-            jsonObject.put("sensor", "temperature");
-            jsonObject.put("measurement", 50.0);
-            jsonObject.put("measurement_unit", "Celsius");
-            jsonObject.put("datetime", timestamp);
-            jsonObject.put("location", location);
-            jsonObject.put("data_quality", "excellent");
-            return objectMapper.writeValueAsString(jsonObject);
-        } catch (Exception e) {
-            LOG.error("Error creating benchmark marker", e);
-            return "{\"sensor\":\"temperature\",\"measurement\":50.0,\"location\":\"" + location + "\"}";
         }
     }
 

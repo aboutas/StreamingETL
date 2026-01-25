@@ -68,13 +68,12 @@ echo "  Done"
 # Wait for job to initialize
 sleep 10
 
-# MONITOR
+# MONITOR PROGRESS
 echo ""
-echo "Monitoring..."
+echo "Monitoring consumption..."
 echo "=========================================="
 
 cd /usr/hdp/current/kafka-broker
-FIRST_TIME=0
 
 while true; do
     OFFSET=$(bin/kafka-consumer-groups.sh \
@@ -84,74 +83,62 @@ while true; do
 
     [ -z "$OFFSET" ] && sleep 1 && continue
 
-    NOW=$(date +%s)
-
-    # First time we see offset > 0
-    if [ "$FIRST_TIME" -eq 0 ] && [ "$OFFSET" -gt 0 ]; then
-        FIRST_TIME=$NOW
-    fi
-
     PERCENT=$((OFFSET * 100 / TOTAL_RECORDS))
-    echo "$(date '+%H:%M:%S'): Offset=$OFFSET / $TOTAL_RECORDS | Progress=$PERCENT%"
+    echo "$(date '+%H:%M:%S'): Offset=$OFFSET / $TOTAL_RECORDS ($PERCENT%)"
 
     # Done when offset reaches total
     if [ "$OFFSET" -ge "$TOTAL_RECORDS" ]; then
-        LAST_TIME=$NOW
         break
     fi
 
     sleep 1
 done
 
-# RESULT FROM MARKERS
 echo ""
-echo "Reading markers from output topic..."
+echo "Consumption complete. Calculating processing time..."
+echo "=========================================="
 
-# Get all marker lines directly (no temp file - more reliable)
-MARKERS=$(timeout 180 bin/kafka-console-consumer.sh \
+# EXTRACT TIMESTAMPS FROM OUTPUT TOPIC
+# Read all output records, extract processedAt, find MIN and MAX
+cd /usr/hdp/current/kafka-broker
+
+bin/kafka-console-consumer.sh \
     --bootstrap-server $KAFKA_BROKER \
     --topic etl.output.v1 \
     --from-beginning \
-    --timeout-ms 60000 2>/dev/null | grep -i "benchmark" || true)
+    --timeout-ms 60000 2>/dev/null \
+    | grep -o '"processedAt":[0-9]*' \
+    | cut -d: -f2 \
+    | sort -n > /tmp/benchmark_times.txt
 
-# Find START and END markers
-START_LINE=$(echo "$MARKERS" | grep -i "benchmark_start" | head -1)
-END_LINE=$(echo "$MARKERS" | grep -i "benchmark_end" | tail -1)
+FIRST_TIME=$(head -1 /tmp/benchmark_times.txt)
+LAST_TIME=$(tail -1 /tmp/benchmark_times.txt)
 
-# Extract processedAt values (format: "processedAt":1234567890.123)
-START_EPOCH=$(echo "$START_LINE" | grep -o '"processedAt":[0-9]*' | cut -d':' -f2)
-END_EPOCH=$(echo "$END_LINE" | grep -o '"processedAt":[0-9]*' | cut -d':' -f2)
-
-echo "START marker epoch: $START_EPOCH"
-echo "END marker epoch:   $END_EPOCH"
-
-if [ -n "$START_EPOCH" ] && [ -n "$END_EPOCH" ]; then
-    PURE_TIME=$((END_EPOCH - START_EPOCH))
-
-    # Calculate measured records (total minus warmup)
-    MEASURED_RECORDS=$((TOTAL_RECORDS - 5002))  # 5000 warmup + 2 markers
+if [ -n "$FIRST_TIME" ] && [ -n "$LAST_TIME" ]; then
+    PURE_TIME=$((LAST_TIME - FIRST_TIME))
 
     if [ "$PURE_TIME" -gt 0 ]; then
-        THROUGHPUT=$((MEASURED_RECORDS / PURE_TIME))
+        THROUGHPUT=$((TOTAL_RECORDS / PURE_TIME))
     else
         THROUGHPUT=0
     fi
 
     echo ""
     echo "=========================================="
-    echo "RESULT (Pure Flink Processing Time)"
+    echo "RESULT"
     echo "=========================================="
-    echo "Total records:    $TOTAL_RECORDS"
-    echo "Measured records: $MEASURED_RECORDS (excluding warmup)"
-    echo "Pure time:        $PURE_TIME seconds"
-    echo "Throughput:       $THROUGHPUT rec/sec"
+    echo "Parallelism:   $PARALLELISM"
+    echo "Total records: $TOTAL_RECORDS"
+    echo "Pure time:     $PURE_TIME seconds"
+    echo "Throughput:    $THROUGHPUT rec/sec"
     echo "=========================================="
 else
     echo ""
     echo "=========================================="
-    echo "ERROR: Could not find markers in output"
+    echo "ERROR: Could not extract timestamps"
     echo "=========================================="
-    echo "Make sure to delete topics before running!"
-    echo "START found: $([ -n "$START_EPOCH" ] && echo 'YES' || echo 'NO')"
-    echo "END found:   $([ -n "$END_EPOCH" ] && echo 'YES' || echo 'NO')"
+    echo "Check if output topic has records"
 fi
+
+# Cleanup
+rm -f /tmp/benchmark_times.txt
