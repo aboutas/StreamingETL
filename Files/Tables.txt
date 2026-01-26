@@ -1,0 +1,11 @@
+Test 1
+MetricTest 2Column1Default ValuesTest 3Test 4Test 5Input_topic1M1M1M1M1M1MActive Configurations444444Parallelism Level12481616Consumtion Time(s)72
+
+
+
+Test 2
+MetricTest 1Test 2Test 3Test 4Test 5Parallelism Level44444Active Configurations44444Input_topic (records)500K1M2M5M10MOutput Topic185,178370,735741,472Consumtion Time (s)3472150
+
+Test 4
+CategoryMetricTest 1Test 2Test 3Test 4Test 5DefaultParallelism Level44444DefaultInput_topic1M1M1M1M1MChangedActive Configurations124812ResultsConsumtion Time (s)72
+

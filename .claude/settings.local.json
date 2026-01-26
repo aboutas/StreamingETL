@@ -46,7 +46,8 @@
       "Bash(done)",
       "Bash(git ls-tree:*)",
       "Bash(xargs ls:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(py generate_plots.py:*)"
     ],
     "deny": [],
     "ask": []
