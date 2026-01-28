@@ -12,13 +12,6 @@ producer:
   rate:
     per:
       sec: ${RATE_PER_SEC:10}
-  data:
-    file: ${DATA_FILE:/data/sensors.json}
-  loop:
-    enabled: true
-  job:
-    id: ${PRODUCER_JOB_ID:default-job}
-  mode: ${PRODUCER_MODE:file}
 
 logging:
   level:

@@ -104,7 +104,7 @@ public class EtlFlinkJob {
                         "Data Source")
                 .map(new EventDeserializer())
                 .filter(event -> event != null)
-                .keyBy(event -> event.getSensor() != null ? event.getSensor() : "universal"); // Key by sensor type for parallelism
+                .keyBy(event -> event.getSensor()); // Key by sensor type for parallelism
 
         // TRUE CoFlatMap: Both streams keyed by same field for optimal distribution
         DataStream<EtlResult> processedStream = configStream

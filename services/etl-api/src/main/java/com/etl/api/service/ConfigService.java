@@ -24,8 +24,8 @@ public class ConfigService {
 
     private static final List<String> VALID_TRANSFORMATIONS = Arrays.asList(
             // Element transformations (filters and data cleaning)
-            "filter_greater", "filter_less", "filter_cross_field",
-            "normalize", "to_lowercase", "trim_whitespace",
+            "filter_greater", "filter_less",
+            "normalize", "to_lowercase", "to_uppercase", "trim_whitespace",
             // Aggregation transformations
             "sum", "max", "min", "avg"
     );
@@ -37,11 +37,9 @@ public class ConfigService {
     private String configTopic;
 
     private KafkaProducer<String, String> kafkaProducer;
-    private ObjectMapper objectMapper;
-    private JobRegistryService jobRegistryService;
+    private final ObjectMapper objectMapper;
 
-    public ConfigService(JobRegistryService jobRegistryService) {
-        this.jobRegistryService = jobRegistryService;
+    public ConfigService() {
         this.objectMapper = new ObjectMapper();
     }
 
@@ -88,23 +86,16 @@ public class ConfigService {
             kafkaProducer.send(record, (metadata, exception) -> {
                 if (exception != null) {
                     LOG.error("Failed to publish config for job: {}", config.getJobId(), exception);
-                    jobRegistryService.updateJobStatus(config.getJobId(), "FAILED",
-                                                     "Failed to publish config: " + exception.getMessage());
                 } else {
                     LOG.info("Config published successfully for job: {} to partition: {}",
                             config.getJobId(), metadata.partition());
-                    jobRegistryService.updateJobStatus(config.getJobId(), "PUBLISHED",
-                                                     "Config published to Kafka");
                 }
             });
 
             LOG.info("Config submitted for job: {}", config.getJobId());
-            jobRegistryService.registerJob(config.getJobId(), "SUBMITTED", "Config validation passed, publishing to Kafka");
 
         } catch (Exception e) {
             LOG.error("Error publishing config", e);
-            jobRegistryService.updateJobStatus(config.getJobId(), "FAILED",
-                                             "Error publishing config: " + e.getMessage());
             throw e;
         }
     }

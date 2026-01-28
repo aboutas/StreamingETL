@@ -91,79 +91,6 @@ public class ElementTransformations {
 
 
     /**
-     * Cross-field filtering function that allows filtering based on one sensor type's measurement
-     * while processing events from another sensor type.
-     * Example: "max humidity with temp > 59" - get max humidity only when temperature > 59
-     */
-    public static class CrossFieldFilterFunction implements MapFunction<SensorEvent, SensorEvent> {
-        private final String filterSensor;      // Sensor to filter by (e.g., "temperature")
-        private final String filterField;       // Field to filter by (e.g., "measurement")
-        private final String filterOperator;    // ">" or "<"
-        private final double filterThreshold;   // Threshold value
-        private final String targetSensor;      // Target sensor to process (e.g., "humidity")
-
-        public CrossFieldFilterFunction(String filterSensor, String filterField, String filterOperator,
-                                       double filterThreshold, String targetSensor) {
-            this.filterSensor = filterSensor;
-            this.filterField = filterField != null ? filterField : "measurement";
-            this.filterOperator = filterOperator != null ? filterOperator : ">";
-            this.filterThreshold = filterThreshold;
-            this.targetSensor = targetSensor;
-        }
-
-        @Override
-        public SensorEvent map(SensorEvent event) throws Exception {
-            // If this is the target sensor we want to process, always pass it through
-            if (targetSensor != null && targetSensor.equals(event.getSensor())) {
-                return event;
-            }
-
-            // If this is the filter sensor, check if it meets the filter condition
-            if (filterSensor != null && filterSensor.equals(event.getSensor())) {
-                Double fieldValue = getFieldValueAsDouble(event, filterField);
-                if (fieldValue != null) {
-                    boolean conditionMet = false;
-                    switch (filterOperator) {
-                        case ">":
-                            conditionMet = fieldValue > filterThreshold;
-                            break;
-                        case "<":
-                            conditionMet = fieldValue < filterThreshold;
-                            break;
-                        case ">=":
-                            conditionMet = fieldValue >= filterThreshold;
-                            break;
-                        case "<=":
-                            conditionMet = fieldValue <= filterThreshold;
-                            break;
-                        case "=":
-                        case "==":
-                            conditionMet = Math.abs(fieldValue - filterThreshold) < 0.001;
-                            break;
-                    }
-
-                    if (conditionMet) {
-                        return event; // Pass through filter sensor events that meet condition
-                    }
-                }
-            }
-
-            return null; // Filter out events that don't match conditions
-        }
-
-        private Double getFieldValueAsDouble(SensorEvent event, String field) {
-            switch (field) {
-                case "measurement":
-                    return event.getMeasurement();
-                case "datetime":
-                    return event.getDatetime() != null ? (double) event.getDatetime().toEpochMilli() : null;
-                default:
-                    return null;
-            }
-        }
-    }
-
-    /**
      * Normalize transformation - Min-Max scaling to [0, 1] range
      * Use case: ML feature preparation, data normalization
      */
@@ -234,6 +161,45 @@ public class ElementTransformations {
     }
 
     /**
+     * To uppercase transformation - Normalize text fields to uppercase
+     * Use case: Standardize location names, sensor types for consistency
+     */
+    public static class ToUppercaseFunction implements MapFunction<SensorEvent, SensorEvent> {
+        private final String field;
+
+        public ToUppercaseFunction(String field) {
+            this.field = field != null ? field : "location";
+        }
+
+        @Override
+        public SensorEvent map(SensorEvent event) throws Exception {
+            switch (field) {
+                case "location":
+                    if (event.getLocation() != null) {
+                        event.setLocation(event.getLocation().toUpperCase());
+                    }
+                    break;
+                case "sensor":
+                    if (event.getSensor() != null) {
+                        event.setSensor(event.getSensor().toUpperCase());
+                    }
+                    break;
+                case "measurement_unit":
+                    if (event.getMeasurementUnit() != null) {
+                        event.setMeasurementUnit(event.getMeasurementUnit().toUpperCase());
+                    }
+                    break;
+                case "data_quality":
+                    if (event.getDataQuality() != null) {
+                        event.setDataQuality(event.getDataQuality().toUpperCase());
+                    }
+                    break;
+            }
+            return event;
+        }
+    }
+
+    /**
      * Trim whitespace transformation - Remove leading/trailing spaces
      * Use case: Clean string fields from data entry errors
      */
@@ -290,16 +256,6 @@ public class ElementTransformations {
                     ((Number) thresholdObj).doubleValue() :
                     Double.parseDouble(String.valueOf(thresholdObj));
                 return new FilterLessFunction(field, threshold, sensor);
-            case "filter_cross_field":
-                String filterSensor = (String) params.get("filter_sensor");
-                String filterField = (String) params.get("filter_field");
-                String filterOperator = (String) params.get("filter_operator");
-                Object filterThresholdObj = params.get("filter_threshold");
-                double filterThreshold = filterThresholdObj instanceof Number ?
-                    ((Number) filterThresholdObj).doubleValue() :
-                    Double.parseDouble(String.valueOf(filterThresholdObj));
-                String targetSensor = (String) params.get("target_sensor");
-                return new CrossFieldFilterFunction(filterSensor, filterField, filterOperator, filterThreshold, targetSensor);
             case "normalize":
                 field = (String) params.get("field");
                 Object minObj = params.get("min");
@@ -314,6 +270,9 @@ public class ElementTransformations {
             case "to_lowercase":
                 field = (String) params.get("field");
                 return new ToLowercaseFunction(field);
+            case "to_uppercase":
+                field = (String) params.get("field");
+                return new ToUppercaseFunction(field);
             case "trim_whitespace":
                 field = (String) params.get("field");
                 return new TrimWhitespaceFunction(field);

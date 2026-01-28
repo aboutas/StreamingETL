@@ -173,9 +173,9 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
     private boolean isElementTransformation(String type) {
         return "filter_greater".equals(type) ||
                "filter_less".equals(type) ||
-               "filter_cross_field".equals(type) ||
                "normalize".equals(type) ||
                "to_lowercase".equals(type) ||
+               "to_uppercase".equals(type) ||
                "trim_whitespace".equals(type);
     }
 

@@ -29,7 +29,12 @@ public class ConfigKeyExtractor implements KeySelector<EtlConfig, String> {
                 }
             }
         }
-        // Fallback: use "universal" for configs without sensor filter
-        return "universal";
+        // FAIL FAST: No "universal" fallback - force explicit sensor specification
+        throw new IllegalArgumentException(
+            "Config '" + config.getJobId() + "' must have 'sensor' parameter in at least one transformation. " +
+            "CoFlatMap requires matching keys between config and event streams. " +
+            "Events are keyed by sensor field (temperature, humidity, light, etc.), " +
+            "so configs must explicitly specify which sensor type they target."
+        );
     }
 }

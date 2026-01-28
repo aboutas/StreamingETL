@@ -1,0 +1,13 @@
+{
+  "jobId": "test-filter-greater",
+  "transformations": [
+    {
+      "type": "filter_greater",
+      "params": {
+        "sensor": "temperature",
+        "field": "measurement",
+        "threshold": 25.0
+      }
+    }
+  ]
+}

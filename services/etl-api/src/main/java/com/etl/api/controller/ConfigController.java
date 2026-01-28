@@ -1,9 +1,7 @@
 package com.etl.api.controller;
 
 import com.etl.api.model.EtlConfig;
-import com.etl.api.model.JobStatus;
 import com.etl.api.service.ConfigService;
-import com.etl.api.service.JobRegistryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -19,14 +17,12 @@ import java.util.Map;
 @RequestMapping("/")
 public class ConfigController {
     private static final Logger LOG = LoggerFactory.getLogger(ConfigController.class);
-    private static final ZoneId GREEK_TIMEZONE = ZoneId.of("Europe/Athens"); // UTC+2 (UTC+3 in summer)
+    private static final ZoneId GREEK_TIMEZONE = ZoneId.of("Europe/Athens");
 
     private final ConfigService configService;
-    private final JobRegistryService jobRegistryService;
 
-    public ConfigController(ConfigService configService, JobRegistryService jobRegistryService) {
+    public ConfigController(ConfigService configService) {
         this.configService = configService;
-        this.jobRegistryService = jobRegistryService;
     }
 
     @PostMapping("/config")
@@ -59,41 +55,12 @@ public class ConfigController {
         }
     }
 
-    @GetMapping("/status/{jobId}")
-    public ResponseEntity<Map<String, Object>> getJobStatus(@PathVariable String jobId) {
-        Map<String, Object> response = new HashMap<>();
-
-        JobStatus jobStatus = jobRegistryService.getJobStatus(jobId);
-
-        if (jobStatus == null) {
-            response.put("status", "error");
-            response.put("message", "Job not found");
-            return ResponseEntity.notFound().build();
-        }
-
-        response.put("status", "success");
-        response.put("jobId", jobStatus.getJobId());
-        response.put("jobStatus", jobStatus.getStatus());
-        response.put("message", jobStatus.getMessage());
-        response.put("submittedAt", jobStatus.getSubmittedAt());
-
-        return ResponseEntity.ok(response);
-    }
-
     @GetMapping("/health")
     public ResponseEntity<Map<String, Object>> health() {
         Map<String, Object> response = new HashMap<>();
         response.put("status", "UP");
         response.put("service", "etl-api");
         response.put("timestamp", ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
-        return ResponseEntity.ok(response);
-    }
-
-    @GetMapping("/jobs")
-    public ResponseEntity<Map<String, Object>> getAllJobs() {
-        Map<String, Object> response = new HashMap<>();
-        response.put("status", "success");
-        response.put("jobs", jobRegistryService.getAllJobs());
         return ResponseEntity.ok(response);
     }
 }

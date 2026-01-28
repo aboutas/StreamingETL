@@ -1,0 +1,13 @@
+{
+  "jobId": "test-normalize",
+  "transformations": [
+    {
+      "type": "normalize",
+      "params": {
+        "field": "measurement",
+        "min": 0.0,
+        "max": 100.0
+      }
+    }
+  ]
+}

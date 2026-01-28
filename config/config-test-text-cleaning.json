@@ -1,0 +1,17 @@
+{
+  "jobId": "test-text-cleaning",
+  "transformations": [
+    {
+      "type": "trim_whitespace",
+      "params": {
+        "field": "location"
+      }
+    },
+    {
+      "type": "to_lowercase",
+      "params": {
+        "field": "location"
+      }
+    }
+  ]
+}

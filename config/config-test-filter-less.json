@@ -1,0 +1,13 @@
+{
+  "jobId": "test-filter-less",
+  "transformations": [
+    {
+      "type": "filter_less",
+      "params": {
+        "sensor": "humidity",
+        "field": "measurement",
+        "threshold": 60.0
+      }
+    }
+  ]
+}

@@ -49,7 +49,6 @@ services:
         kafka-topics --bootstrap-server kafka:29092 --create --topic etl.config.v1 --partitions 3 --replication-factor 1 --if-not-exists &&
         kafka-topics --bootstrap-server kafka:29092 --create --topic etl.input.v1 --partitions 3 --replication-factor 1 --if-not-exists &&
         kafka-topics --bootstrap-server kafka:29092 --create --topic etl.output.v1 --partitions 3 --replication-factor 1 --if-not-exists &&
-        kafka-topics --bootstrap-server kafka:29092 --create --topic etl.deadletter.v1 --partitions 1 --replication-factor 1 --if-not-exists &&
         echo 'Kafka topics created successfully'
       "
 
