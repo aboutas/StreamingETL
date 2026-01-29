@@ -70,9 +70,8 @@ public class FileProducerService {
     private void startRandomDataProduction() {
         new Thread(() -> {
             try {
-                LOG.info("Starting comprehensive random data production mode");
-                LOG.info("Each room will have all sensor types: temperature, pressure, humidity, air_quality, light, noise");
-                LOG.info("Generating realistic sensor data with patterns and correlations");
+                LOG.info("Starting data production: {} locations x {} sensors at {} msg/sec",
+                        locations.length, sensorTypes.length, ratePerSec);
 
                 long intervalMs = 1000L / ratePerSec;
                 long messageCount = 0;
@@ -287,27 +286,8 @@ public class FileProducerService {
     }
 
     private void logDataGenerationStats(long messageCount) {
-        try {
-            LOG.info("=== Data Generation Statistics ===");
-            LOG.info("Total messages sent: {}", messageCount);
-            LOG.info("Locations generating data: {}", String.join(", ", locations));
-            LOG.info("Sensor types generating data: {}", String.join(", ", sensorTypes));
-            LOG.info("Messages per cycle: {} (locations: {} × sensors: {})",
-                locations.length * sensorTypes.length, locations.length, sensorTypes.length);
-            LOG.info("Rate: {} messages/second", ratePerSec);
-
-            // Log expected data characteristics
-            LOG.info("Expected sensor ranges:");
-            LOG.info("  Temperature: -30 to 70°C (Gaussian, mean ~22°C)");
-            LOG.info("  Pressure: 950-1080 hPa (Gaussian, mean ~1013 hPa)");
-            LOG.info("  Humidity: 20-90% (Gaussian, mean ~50%)");
-            LOG.info("  Air Quality: 0-200 AQI (Gaussian, mean ~50)");
-            LOG.info("  Light: 50-1000 lux (Gaussian, mean ~350 lux)");
-            LOG.info("  Noise: 30-80 dB (Gaussian, mean ~45 dB)");
-            LOG.info("=====================================");
-        } catch (Exception e) {
-            LOG.warn("Error logging statistics", e);
-        }
+        LOG.info("Stats: {} messages, {} locations x {} sensors, {} msg/sec",
+                messageCount, locations.length, sensorTypes.length, ratePerSec);
     }
 
     private String generateKey(String json) {

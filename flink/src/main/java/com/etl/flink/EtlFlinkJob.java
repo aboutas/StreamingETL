@@ -7,21 +7,17 @@ import com.etl.flink.model.SensorEvent;
 import com.etl.flink.process.CoFlatMapProcessor;
 import com.etl.flink.process.ConfigKeyExtractor;
 import com.etl.flink.sink.MongoSink;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.functions.MapFunction;
-import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingProcessingTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
-import org.apache.flink.api.common.functions.AggregateFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,7 +26,6 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
-import java.util.Map;
 
 public class EtlFlinkJob {
     private static final Logger LOG = LoggerFactory.getLogger(EtlFlinkJob.class);
@@ -42,7 +37,6 @@ public class EtlFlinkJob {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.enableCheckpointing(30000);
 
-        // Set global parallelism to 4 for testing
         env.setParallelism(4);
 
         String kafkaBootstrapServers = getEnvOrDefault("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092");
@@ -51,14 +45,8 @@ public class EtlFlinkJob {
         String outputTopic = getEnvOrDefault("OUTPUT_TOPIC", "etl.output.v1");
         String mongoUri = getEnvOrDefault("MONGO_URI", "mongodb://mongo:27017/etl_db");
 
-        LOG.info("Kafka Bootstrap Servers: {}", kafkaBootstrapServers);
-        LOG.info("Config Topic: {}", configTopic);
-        LOG.info("Input Topic: {}", inputTopic);
-        LOG.info("Output Topic: {}", outputTopic);
-        LOG.info("MongoDB URI: {}", mongoUri);
-
-        ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.registerModule(new JavaTimeModule());
+        LOG.info("Config: kafka={}, topics=[config={}, input={}], mongo={}",
+                kafkaBootstrapServers, configTopic, inputTopic, mongoUri);
 
         KafkaSource<String> configSource = KafkaSource.<String>builder()
                 .setBootstrapServers(kafkaBootstrapServers)
@@ -127,7 +115,7 @@ public class EtlFlinkJob {
                         })
                 );
 
-        // WINDOWING OPERATOR (4th operator) - Use fixed 10s windows to get system working first
+        // Windowing: 3-second tumbling windows
         DataStream<EtlResult> windowedResults = dataResults
                 .keyBy(result -> {
                     return String.format("%s|%s|%s",
@@ -155,7 +143,6 @@ public class EtlFlinkJob {
     }
 
     public static class ConfigDeserializer implements MapFunction<String, EtlConfig> {
-
         @Override
         public EtlConfig map(String value) throws Exception {
             try {
@@ -183,11 +170,7 @@ public class EtlFlinkJob {
         }
     }
 
-    /**
-     * Window aggregator that performs sum/avg/min/max operations
-     */
     public static class WindowAggregator implements AggregateFunction<EtlResult, WindowAccumulator, EtlResult> {
-
         @Override
         public WindowAccumulator createAccumulator() {
             return new WindowAccumulator();
@@ -227,8 +210,6 @@ public class EtlFlinkJob {
             result.setField(accumulator.field);
             result.setResult(accumulator.getResult());
             result.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
-
-            // Set sensor context
             result.setSensorType(accumulator.sensorType);
             result.setMeasurementUnit(accumulator.measurementUnit);
             result.setLocation(accumulator.location);
@@ -246,9 +227,6 @@ public class EtlFlinkJob {
         }
     }
 
-    /**
-     * Accumulator for window aggregation
-     */
     public static class WindowAccumulator {
         public String jobId;
         public List<com.etl.flink.model.Transformation> transformations;

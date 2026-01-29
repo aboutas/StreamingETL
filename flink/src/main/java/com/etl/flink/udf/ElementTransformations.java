@@ -3,10 +3,6 @@ package com.etl.flink.udf;
 import com.etl.flink.model.SensorEvent;
 import org.apache.flink.api.common.functions.MapFunction;
 
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.util.List;
 import java.util.Map;
 
 public class ElementTransformations {
@@ -86,9 +82,6 @@ public class ElementTransformations {
             }
         }
     }
-
-
-
 
     /**
      * Normalize transformation - Min-Max scaling to [0, 1] range

@@ -4,6 +4,7 @@
     {
       "type": "normalize",
       "params": {
+        "sensor": "temperature",
         "field": "measurement",
         "min": 0.0,
         "max": 100.0

@@ -255,7 +255,6 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         }
     }
 
-
     private void createSimpleResult(SensorEvent event, EtlConfig config, Collector<EtlResult> out) {
         EtlResult result = new EtlResult();
         result.setJobId(config.getJobId());

@@ -4,12 +4,14 @@
     {
       "type": "trim_whitespace",
       "params": {
+        "sensor": "humidity",
         "field": "location"
       }
     },
     {
       "type": "to_lowercase",
       "params": {
+        "sensor": "humidity",
         "field": "location"
       }
     }
