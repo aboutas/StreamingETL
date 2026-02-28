@@ -42,7 +42,7 @@ public class EtlFlinkJob {
         String kafkaBootstrapServers = getEnvOrDefault("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092");
         String configTopic = getEnvOrDefault("CONFIG_TOPIC", "etl.config.v1");
         String inputTopic = getEnvOrDefault("INPUT_TOPIC", "etl.input.v1");
-        String outputTopic = getEnvOrDefault("OUTPUT_TOPIC", "etl.output.v1");
+        //String outputTopic = getEnvOrDefault("OUTPUT_TOPIC", "etl.output.v1");
         String mongoUri = getEnvOrDefault("MONGO_URI", "mongodb://mongo:27017/etl_db");
 
         LOG.info("Config: kafka={}, topics=[config={}, input={}], mongo={}",
@@ -64,14 +64,14 @@ public class EtlFlinkJob {
                 .setValueOnlyDeserializer(new SafeStringDeserializer())
                 .build();
 
-        // Create configuration stream - keyed by same field as data stream for TRUE CoFlatMap
+        // Create configuration stream - keyed by same field as data stream 
         DataStream<EtlConfig> configStream = env
                 .fromSource(configSource, WatermarkStrategy.noWatermarks(), "Config Source")
                 .map(new ConfigDeserializer())
                 .filter(config -> config != null)
                 .keyBy(new ConfigKeyExtractor()); // Key configs by their target keyBy field
 
-        // Create keyed event stream - enables parallel processing by sensor field
+        // Create keyed event stream 
         DataStream<SensorEvent> eventStream = env
                 .fromSource(dataSource,
                         WatermarkStrategy.<String>forBoundedOutOfOrderness(Duration.ofSeconds(5))

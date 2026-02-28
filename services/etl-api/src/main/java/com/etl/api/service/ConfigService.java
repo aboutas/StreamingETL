@@ -54,7 +54,7 @@ public class ConfigService {
         props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
 
         kafkaProducer = new KafkaProducer<>(props);
-        LOG.info("Kafka producer initialized with bootstrap servers: {}", kafkaBootstrapServers);
+        LOG.info("Kafka producer initialized", kafkaBootstrapServers);
     }
 
     @PreDestroy

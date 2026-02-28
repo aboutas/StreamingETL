@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Service
 public class FileProducerService {
     private static final Logger LOG = LoggerFactory.getLogger(FileProducerService.class);
-    private static final ZoneId GREEK_TIMEZONE = ZoneId.of("Europe/Athens"); // UTC+2 (UTC+3 in summer)
+    private static final ZoneId GREEK_TIMEZONE = ZoneId.of("Europe/Athens"); // UTC+2 
 
     @Value("${kafka.bootstrap.servers:kafka:9092}")
     private String kafkaBootstrapServers;
@@ -62,7 +62,7 @@ public class FileProducerService {
         kafkaProducer = new KafkaProducer<>(props);
         objectMapper = new ObjectMapper();
 
-        LOG.info("Kafka producer initialized with bootstrap servers: {}", kafkaBootstrapServers);
+        LOG.info("Kafka producer initialized: {}", kafkaBootstrapServers);
         LOG.info("Input topic: {}", inputTopic);
         LOG.info("Rate per second: {}", ratePerSec);
     }
@@ -121,7 +121,7 @@ public class FileProducerService {
     private String[] generateComprehensiveSensorData() {
         try {
             String timestamp = ZonedDateTime.now(GREEK_TIMEZONE).toInstant().toString();
-            String[] allData = new String[locations.length * sensorTypes.length]; // 8 rooms * 6 sensors = 48 messages
+            String[] allData = new String[locations.length * sensorTypes.length]; 
             int index = 0;
 
             // Generate data for ALL sensor types in ALL rooms
@@ -169,7 +169,6 @@ public class FileProducerService {
                         continue;
                     }
 
-                    // Create JSON object for this sensor in this room
                     var jsonObject = objectMapper.createObjectNode();
                     jsonObject.put("sensor", sensorType);
                     jsonObject.put("measurement", measurement);
@@ -199,36 +198,28 @@ public class FileProducerService {
     }
 
     private double generateRealisticPressure() {
-        // Standard atmospheric pressure with realistic variation
+      
         double pressure = 1013.25 + (random.nextGaussian() * 15.0);
-        // Clamp to realistic atmospheric pressure range
         return Math.max(950.0, Math.min(1080.0, pressure));
     }
 
     private double generateRealisticHumidity() {
-        // Realistic humidity range: 20-90%
-        // Gaussian distribution centered around typical indoor humidity
         double humidity = 50.0 + (random.nextGaussian() * 15.0);
         return Math.max(20.0, Math.min(90.0, humidity));
     }
 
     private double generateRealisticAirQuality() {
-        // Realistic AQI range: 0-200
-        // Gaussian distribution centered around good indoor air quality
         double aqi = 50.0 + (random.nextGaussian() * 25.0);
         return Math.max(0.0, Math.min(200.0, aqi));
     }
 
     private double generateRealisticLight() {
-        // Realistic light range: 50-1000 lux
-        // Gaussian distribution centered around typical indoor lighting
         double lux = 350.0 + (random.nextGaussian() * 100.0);
         return Math.max(50.0, Math.min(1000.0, lux));
     }
 
     private double generateRealisticNoise() {
-        // Realistic noise range: 30-80 dB
-        // Gaussian distribution centered around typical indoor noise level
+
         double noise = 45.0 + (random.nextGaussian() * 10.0);
         return Math.max(30.0, Math.min(80.0, noise));
     }
@@ -236,7 +227,7 @@ public class FileProducerService {
     private boolean isValidMeasurement(String sensorType, double measurement) {
         switch (sensorType) {
             case "temperature":
-                return measurement >= -30.0 && measurement <= 70.0; // Real-world range
+                return measurement >= -30.0 && measurement <= 70.0; 
             case "pressure":
                 return measurement >= 950.0 && measurement <= 1080.0; // Atmospheric pressure range
             case "humidity":

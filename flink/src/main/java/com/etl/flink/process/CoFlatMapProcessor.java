@@ -20,7 +20,6 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * TRUE CoFlatMap implementation with true parallelism.
  * Both config and data streams keyed by same field for optimal distribution.
  */
 public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorEvent, EtlResult> {
