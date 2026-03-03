@@ -77,9 +77,7 @@ public class EtlFlinkJob {
                         WatermarkStrategy.<String>forBoundedOutOfOrderness(Duration.ofSeconds(5))
                                 .withTimestampAssigner((event, timestamp) -> {
                                     try {
-                                        ObjectMapper mapper = new ObjectMapper();
-                                        mapper.registerModule(new JavaTimeModule());
-                                        SensorEvent sensorEvent = mapper.readValue(event, SensorEvent.class);
+                                        SensorEvent sensorEvent = EventDeserializer.MAPPER.readValue(event, SensorEvent.class);
                                         if (sensorEvent != null && sensorEvent.getDatetime() != null) {
                                             return sensorEvent.getDatetime().toEpochMilli();
                                         }
@@ -143,11 +141,12 @@ public class EtlFlinkJob {
     }
 
     public static class ConfigDeserializer implements MapFunction<String, EtlConfig> {
+        private static final ObjectMapper MAPPER = new ObjectMapper();
+
         @Override
         public EtlConfig map(String value) throws Exception {
             try {
-                ObjectMapper objectMapper = new ObjectMapper();
-                return objectMapper.readValue(value, EtlConfig.class);
+                return MAPPER.readValue(value, EtlConfig.class);
             } catch (Exception e) {
                 LOG.error("Failed to deserialize config: {}", value, e);
                 return null;
@@ -156,13 +155,13 @@ public class EtlFlinkJob {
     }
 
     public static class EventDeserializer implements MapFunction<String, SensorEvent> {
+        private static final ObjectMapper MAPPER = new ObjectMapper()
+                .registerModule(new JavaTimeModule());
 
         @Override
         public SensorEvent map(String value) throws Exception {
             try {
-                ObjectMapper objectMapper = new ObjectMapper();
-                objectMapper.registerModule(new JavaTimeModule());
-                return objectMapper.readValue(value, SensorEvent.class);
+                return MAPPER.readValue(value, SensorEvent.class);
             } catch (Exception e) {
                 LOG.error("Failed to deserialize event: {}", value, e);
                 return null;
