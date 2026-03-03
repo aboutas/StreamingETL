@@ -192,11 +192,12 @@ public class EtlFlinkJob {
     }
 
     public static class ConfigDeserializer implements MapFunction<String, EtlConfig> {
+        private static final ObjectMapper MAPPER = new ObjectMapper();
+
         @Override
         public EtlConfig map(String value) throws Exception {
             try {
-                ObjectMapper objectMapper = new ObjectMapper();
-                return objectMapper.readValue(value, EtlConfig.class);
+                return MAPPER.readValue(value, EtlConfig.class);
             } catch (Exception e) {
                 LOG.error("Failed to deserialize config: {}", value, e);
                 return null;
@@ -205,12 +206,13 @@ public class EtlFlinkJob {
     }
 
     public static class EventDeserializer implements MapFunction<String, SensorEvent> {
+        static final ObjectMapper MAPPER = new ObjectMapper()
+                .registerModule(new JavaTimeModule());
+
         @Override
         public SensorEvent map(String value) throws Exception {
             try {
-                ObjectMapper objectMapper = new ObjectMapper();
-                objectMapper.registerModule(new JavaTimeModule());
-                return objectMapper.readValue(value, SensorEvent.class);
+                return MAPPER.readValue(value, SensorEvent.class);
             } catch (Exception e) {
                 LOG.error("Failed to deserialize event: {}", value, e);
                 return null;

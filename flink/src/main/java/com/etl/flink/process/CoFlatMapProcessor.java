@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -28,6 +29,8 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
     private static final ZoneId GREEK_TIMEZONE = ZoneId.of("Europe/Athens"); // UTC+2 (UTC+3 in summer)
 
     private transient MapState<String, EtlConfig> configState;
+    // Cache transformation functions per config jobId to avoid recreating per event
+    private final Map<String, List<org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent>>> transformationCache = new HashMap<>();
 
     @Override
     public void open(Configuration parameters) throws Exception {
@@ -44,6 +47,17 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
 
         // Store config by jobId - only configs for THIS key group
         configState.put(config.getJobId(), config);
+
+        // Pre-build and cache transformation functions for this config
+        if (config.getTransformations() != null) {
+            List<org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent>> cached = new ArrayList<>();
+            for (Transformation t : config.getTransformations()) {
+                if (isElementTransformation(t.getType())) {
+                    cached.add(ElementTransformations.createTransformation(t.getType(), t.getParams()));
+                }
+            }
+            transformationCache.put(config.getJobId(), cached);
+        }
 
         // Emit configuration status result
         EtlResult configResult = new EtlResult();
@@ -104,13 +118,15 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         // Strategy: Process each transformation path independently
         // This allows different sensor filters to work in parallel
 
-        // Process element transformations - these apply to all events first
+        // Process element transformations using cached functions
         SensorEvent filteredEvent = event;
-        for (Transformation transformation : elementTransformations) {
-            filteredEvent = applyElementTransformation(filteredEvent, transformation);
-            if (filteredEvent == null) {
-                // If event doesn't pass element transformations, check if aggregations can still process original event
-                break;
+        List<org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent>> cachedFunctions = transformationCache.get(config.getJobId());
+        if (cachedFunctions != null) {
+            for (org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent> fn : cachedFunctions) {
+                filteredEvent = applyElementTransformation(filteredEvent, fn);
+                if (filteredEvent == null) {
+                    break;
+                }
             }
         }
 
@@ -132,7 +148,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
             }
         } else if (filteredEvent != null) {
             // Only element transformations, emit the result
-            LOG.info("Emitting filter-only result for jobId={}, sensor={}, measurement={}",
+            LOG.debug("Emitting filter-only result for jobId={}, sensor={}, measurement={}",
                 config.getJobId(), filteredEvent.getSensor(), filteredEvent.getMeasurement());
             createFinalResult(filteredEvent, config, out);
         } else {
@@ -189,15 +205,12 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         return "sum".equals(type) || "max".equals(type) || "min".equals(type) || "avg".equals(type);
     }
 
-    private SensorEvent applyElementTransformation(SensorEvent event, Transformation transformation) throws Exception {
+    private SensorEvent applyElementTransformation(SensorEvent event, org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent> fn) throws Exception {
         try {
-            org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent> mapFunction = ElementTransformations.createTransformation(transformation.getType(), transformation.getParams());
-            SensorEvent result = mapFunction.map(event);
-
+            SensorEvent result = fn.map(event);
             if (result != null) {
                 result.setJobId(event.getJobId());
             }
-
             return result;
         } catch (Exception e) {
             LOG.warn("Element transformation error: {}", e.getMessage());
