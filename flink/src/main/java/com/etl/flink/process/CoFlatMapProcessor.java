@@ -113,12 +113,13 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
             }
         }
 
-        // Process aggregation transformations - each can have its own sensor filter
+        // Process aggregation transformations - only if event passed element filters
         boolean hasValidAggregations = false;
-        for (Transformation transformation : aggregationTransformations) {
-            // For aggregations, use original event and let each transformation apply its own sensor filter
-            if (processWindowedAggregation(event, transformation, config, out)) {
-                hasValidAggregations = true;
+        if (filteredEvent != null) {
+            for (Transformation transformation : aggregationTransformations) {
+                if (processWindowedAggregation(filteredEvent, transformation, config, out)) {
+                    hasValidAggregations = true;
+                }
             }
         }
 
@@ -186,11 +187,6 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         try {
             var mapFunction = ElementTransformations.createTransformation(transformation.getType(), transformation.getParams());
             SensorEvent result = mapFunction.map(event);
-
-            if (result != null) {
-                result.setJobId(event.getJobId());
-            }
-
             return result;
         } catch (Exception e) {
             LOG.warn("Element transformation error: {}", e.getMessage());
@@ -218,8 +214,6 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
                 return event.getSensor() != null ? event.getSensor() : "unknown";
             case "measurement_unit":
                 return event.getMeasurementUnit() != null ? event.getMeasurementUnit() : "unknown";
-            case "jobId":
-                return event.getJobId() != null ? event.getJobId() : "unknown";
             case "location":
                 return event.getLocation() != null ? event.getLocation() : "unknown";
             case "data_quality":
@@ -241,8 +235,6 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
                 return event.getSensor();
             case "measurement_unit":
                 return event.getMeasurementUnit();
-            case "jobId":
-                return event.getJobId();
             case "location":
                 return event.getLocation();
             case "data_quality":

@@ -169,8 +169,7 @@ public class MongoSink extends RichSinkFunction<EtlResult> {
                     .append("measurementUnit", sensorEvent.getMeasurementUnit())
                     .append("datetime", sensorEvent.getDatetime() != null ? sensorEvent.getDatetime().toString() : null)
                     .append("location", sensorEvent.getLocation())
-                    .append("dataQuality", sensorEvent.getDataQuality())
-                    .append("jobId", sensorEvent.getJobId());
+                    .append("dataQuality", sensorEvent.getDataQuality());
         }
 
         // Handle Instant objects

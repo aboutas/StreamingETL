@@ -7,9 +7,6 @@ import java.time.Instant;
 import java.util.Objects;
 
 public class SensorEvent {
-    @JsonProperty("jobId")
-    private String jobId;
-
     @JsonProperty("sensor")
     private String sensor;
 
@@ -32,12 +29,11 @@ public class SensorEvent {
 
     public SensorEvent() {}
 
-    public SensorEvent(String jobId, String sensor, Double measurement, String measurementUnit, Instant datetime, String location) {
-        this(jobId, sensor, measurement, measurementUnit, datetime, location, null);
+    public SensorEvent(String sensor, Double measurement, String measurementUnit, Instant datetime, String location) {
+        this(sensor, measurement, measurementUnit, datetime, location, null);
     }
 
-    public SensorEvent(String jobId, String sensor, Double measurement, String measurementUnit, Instant datetime, String location, String dataQuality) {
-        this.jobId = jobId;
+    public SensorEvent(String sensor, Double measurement, String measurementUnit, Instant datetime, String location, String dataQuality) {
         this.sensor = sensor;
         this.measurement = measurement;
         this.measurementUnit = measurementUnit;
@@ -46,17 +42,8 @@ public class SensorEvent {
         this.dataQuality = dataQuality;
     }
 
-    // Legacy constructor for backward compatibility
     public SensorEvent(String sensor, Double measurement, String measurementUnit, Instant datetime) {
-        this(null, sensor, measurement, measurementUnit, datetime, null);
-    }
-
-    public String getJobId() {
-        return jobId;
-    }
-
-    public void setJobId(String jobId) {
-        this.jobId = jobId;
+        this(sensor, measurement, measurementUnit, datetime, null);
     }
 
     public String getSensor() {
@@ -112,8 +99,7 @@ public class SensorEvent {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         SensorEvent that = (SensorEvent) o;
-        return Objects.equals(jobId, that.jobId) &&
-                Objects.equals(sensor, that.sensor) &&
+        return Objects.equals(sensor, that.sensor) &&
                 Objects.equals(measurement, that.measurement) &&
                 Objects.equals(measurementUnit, that.measurementUnit) &&
                 Objects.equals(datetime, that.datetime) &&
@@ -123,14 +109,13 @@ public class SensorEvent {
 
     @Override
     public int hashCode() {
-        return Objects.hash(jobId, sensor, measurement, measurementUnit, datetime, location, dataQuality);
+        return Objects.hash(sensor, measurement, measurementUnit, datetime, location, dataQuality);
     }
 
     @Override
     public String toString() {
         return "SensorEvent{" +
-                "jobId='" + jobId + '\'' +
-                ", sensor='" + sensor + '\'' +
+                "sensor='" + sensor + '\'' +
                 ", measurement=" + measurement +
                 ", measurementUnit='" + measurementUnit + '\'' +
                 ", datetime=" + datetime +

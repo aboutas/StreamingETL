@@ -88,7 +88,6 @@ public class WindowedAggregations {
                 // This is a simplified average that just takes the mean of two values
                 Double avgValue = (event1.getMeasurement() + event2.getMeasurement()) / 2.0;
                 return new SensorEvent(
-                        event1.getJobId(),
                         event1.getSensor(),
                         avgValue,
                         event1.getMeasurementUnit(),
@@ -123,10 +122,6 @@ public class WindowedAggregations {
                         Instant.ofEpochMilli(window.getEnd()),
                         event.getLocation()
                 );
-                // Copy jobId if it exists
-                if (event.getJobId() != null) {
-                    result.setJobId(event.getJobId());
-                }
                 out.collect(result);
             }
         }
@@ -156,14 +151,14 @@ public class WindowedAggregations {
 
         public WindowedSensorEvent(String sensor, Double measurement, String measurementUnit,
                                  Instant datetime, Instant windowStart, Instant windowEnd) {
-            super(null, sensor, measurement, measurementUnit, datetime, null);
+            super(sensor, measurement, measurementUnit, datetime, null);
             this.windowStart = windowStart;
             this.windowEnd = windowEnd;
         }
 
         public WindowedSensorEvent(String sensor, Double measurement, String measurementUnit,
                                  Instant datetime, Instant windowStart, Instant windowEnd, String location) {
-            super(null, sensor, measurement, measurementUnit, datetime, location);
+            super(sensor, measurement, measurementUnit, datetime, location);
             this.windowStart = windowStart;
             this.windowEnd = windowEnd;
         }
@@ -188,7 +183,7 @@ public class WindowedAggregations {
         public AggregatedSensorEvent(String sensor, Double measurement, String measurementUnit,
                                    Instant datetime, String location, Set<String> contributingSensors,
                                    Set<String> contributingUnits, int eventCount) {
-            super(null, sensor, measurement, measurementUnit, datetime, location);
+            super(sensor, measurement, measurementUnit, datetime, location);
             this.contributingSensors = new HashSet<>(contributingSensors);
             this.contributingUnits = new HashSet<>(contributingUnits);
             this.eventCount = eventCount;
