@@ -61,11 +61,18 @@ java -jar $JAR_DIR/etl-api-1.0.0.jar \
     --server.port=8080 > /dev/null 2>&1 &
 API_PID=$!
 sleep 10
-curl -s -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @$JAR_DIR/config-clean-data.json > /dev/null
-curl -s -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @$JAR_DIR/config-elements.json > /dev/null
-curl -s -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @$JAR_DIR/config-9.json > /dev/null
-curl -s -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @$JAR_DIR/config-high-light.json > /dev/null
-echo "  4 configs submitted"
+
+CONFIGS_OK=0
+for cfg in config-clean-data.json config-elements.json config-9.json config-high-light.json; do
+    RESP=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8080/config \
+        -H "Content-Type: application/json" -d @$JAR_DIR/$cfg)
+    if [ "$RESP" = "200" ] || [ "$RESP" = "201" ]; then
+        CONFIGS_OK=$((CONFIGS_OK + 1))
+    else
+        echo "  WARNING: Failed to submit $cfg (HTTP $RESP)"
+    fi
+done
+echo "  $CONFIGS_OK/4 configs submitted"
 
 echo "[4/7] Producing $RECORDS records..."
 java -jar $JAR_DIR/etl-file-producer-1.0.0.jar \
@@ -78,6 +85,12 @@ TOTAL=$($KAFKA_DIR/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
     --broker-list $KAFKA_BROKER --topic $INPUT_TOPIC --time -1 2>/dev/null \
     | awk -F: '{sum += $3} END {print sum}')
 echo "  Done: $TOTAL records in topic"
+
+if [ -z "$TOTAL" ] || [ "$TOTAL" -le 0 ] 2>/dev/null; then
+    echo "  ERROR: No records in input topic. Aborting."
+    kill $API_PID 2>/dev/null || true
+    exit 1
+fi
 
 echo "[5/7] Deleting consumer group..."
 $KAFKA_DIR/bin/kafka-consumer-groups.sh \
@@ -103,12 +116,20 @@ echo "  Waiting for Flink to start consuming data..."
 
 # Wait until Flink starts consuming data records (offset > 0 on input topic)
 # This excludes Flink init time (JVM startup, config loading, task deployment)
+WAIT_COUNT=0
+MAX_WAIT=120  # 60 seconds timeout (120 * 0.5s)
 while true; do
     OFFSET=$($KAFKA_DIR/bin/kafka-consumer-groups.sh \
         --bootstrap-server $KAFKA_BROKER \
         --group $CONSUMER_GROUP --describe 2>/dev/null \
         | grep "$INPUT_TOPIC" | awk '{sum+=$3}END{print sum}')
     [ -n "$OFFSET" ] && [ "$OFFSET" -gt 0 ] 2>/dev/null && break
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+    if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
+        echo "  ERROR: Flink did not start consuming within 60s. Check Flink dashboard."
+        kill $API_PID 2>/dev/null || true
+        exit 1
+    fi
     sleep 0.5
 done
 
