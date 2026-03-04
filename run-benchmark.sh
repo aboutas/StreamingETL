@@ -2,16 +2,15 @@
 ################################################################################
 # ETL Flink Benchmark - Pure Processing Time
 #
-# All-in-one: resets topics, submits configs, produces data, starts Flink,
-# measures pure processing time (excludes Flink init).
+# Prerequisite: topics, configs, and data must already be set up (see run.md).
+# This script ONLY submits the Flink job and measures pure processing time.
 #
-# Usage: ./run-benchmark.sh <parallelism> [records]
-# Example: ./run-benchmark.sh 4 2000000
+# Usage: ./run-benchmark.sh <parallelism>
+# Example: ./run-benchmark.sh 4
 ################################################################################
 
 KAFKA_BROKER="clu02.softnet.tuc.gr:6667"
 KAFKA_BROKERS="clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667"
-ZOOKEEPER="clu01.softnet.tuc.gr:2182"
 KAFKA_DIR="/usr/hdp/current/kafka-broker"
 FLINK_DIR="/usr/local/flink"
 JAR_DIR="/home/avoutas/boutasThesis"
@@ -20,79 +19,30 @@ INPUT_TOPIC="etl.input.v1"
 CONFIG_TOPIC="etl.config.v1"
 OUTPUT_TOPIC="etl.output.v1"
 
-PARALLELISM=${1:?"Usage: $0 <parallelism> [records]  Example: $0 4 2000000"}
-RECORDS=${2:-2000000}
+PARALLELISM=${1:?"Usage: $0 <parallelism>  Example: $0 4"}
 
 echo "=========================================="
 echo "  ETL FLINK BENCHMARK"
 echo "  Parallelism: $PARALLELISM"
-echo "  Target records: $RECORDS"
 echo "=========================================="
 
 ################################################################################
-# PHASE 1: SETUP (not timed)
+# STEP 1: Stop existing Flink jobs
 ################################################################################
 
 echo ""
-echo "[1/7] Stopping existing Flink jobs..."
+echo "[1/3] Stopping existing Flink jobs..."
 for job in $($FLINK_DIR/bin/flink list -r 2>/dev/null | awk 'NR>3 {print $4}'); do
     $FLINK_DIR/bin/flink cancel $job 2>/dev/null || true
 done
 sleep 3
 echo "  Done"
 
-echo "[2/7] Resetting topics..."
-$KAFKA_DIR/bin/kafka-topics.sh --delete --zookeeper $ZOOKEEPER --topic $INPUT_TOPIC 2>/dev/null || true
-$KAFKA_DIR/bin/kafka-topics.sh --delete --zookeeper $ZOOKEEPER --topic $CONFIG_TOPIC 2>/dev/null || true
-$KAFKA_DIR/bin/kafka-topics.sh --delete --zookeeper $ZOOKEEPER --topic $OUTPUT_TOPIC 2>/dev/null || true
-sleep 5
-$KAFKA_DIR/bin/kafka-topics.sh --create --zookeeper $ZOOKEEPER --replication-factor 2 --partitions 4 --topic $INPUT_TOPIC
-$KAFKA_DIR/bin/kafka-topics.sh --create --zookeeper $ZOOKEEPER --replication-factor 2 --partitions 4 --topic $CONFIG_TOPIC
-$KAFKA_DIR/bin/kafka-topics.sh --create --zookeeper $ZOOKEEPER --replication-factor 2 --partitions 4 --topic $OUTPUT_TOPIC
-sleep 3
-echo "  Done"
+################################################################################
+# STEP 2: Delete consumer group (clean offsets)
+################################################################################
 
-echo "[3/7] Starting API & submitting configs..."
-pkill -f "etl-api-1.0.0.jar" 2>/dev/null || true
-sleep 2
-java -jar $JAR_DIR/etl-api-1.0.0.jar \
-    --kafka.bootstrap.servers=$KAFKA_BROKERS \
-    --kafka.config.topic=$CONFIG_TOPIC \
-    --server.port=8080 > /dev/null 2>&1 &
-API_PID=$!
-sleep 10
-
-CONFIGS_OK=0
-for cfg in config-clean-data.json config-elements.json config-9.json config-high-light.json; do
-    RESP=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8080/config \
-        -H "Content-Type: application/json" -d @$JAR_DIR/$cfg)
-    if [ "$RESP" = "200" ] || [ "$RESP" = "201" ]; then
-        CONFIGS_OK=$((CONFIGS_OK + 1))
-    else
-        echo "  WARNING: Failed to submit $cfg (HTTP $RESP)"
-    fi
-done
-echo "  $CONFIGS_OK/4 configs submitted"
-
-echo "[4/7] Producing $RECORDS records..."
-java -jar $JAR_DIR/etl-file-producer-1.0.0.jar \
-    --kafka.bootstrap.servers=$KAFKA_BROKERS \
-    --kafka.input.topic=$INPUT_TOPIC \
-    --producer.max.records=$RECORDS \
-    --producer.rate.per.sec=50000 > /dev/null 2>&1
-
-TOTAL=$($KAFKA_DIR/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
-    --broker-list $KAFKA_BROKER --topic $INPUT_TOPIC --time -1 2>/dev/null \
-    | awk -F: '{sum += $3} END {print sum}')
-echo "  Done: $TOTAL records in topic"
-
-if [ -z "$TOTAL" ] || [ "$TOTAL" -le 0 ] 2>/dev/null; then
-    echo "  ERROR: No records in input topic. Aborting."
-    kill $API_PID 2>/dev/null || true
-    exit 1
-fi
-
-echo "[5/7] Deleting consumer group..."
+echo "[2/3] Deleting consumer group..."
 $KAFKA_DIR/bin/kafka-consumer-groups.sh \
     --bootstrap-server $KAFKA_BROKER \
     --group $CONSUMER_GROUP --delete 2>/dev/null || true
@@ -100,22 +50,31 @@ sleep 2
 echo "  Done"
 
 ################################################################################
-# PHASE 2: MEASURE (only this part is timed)
+# STEP 3: Submit Flink job & measure pure processing time
 ################################################################################
 
+# Count total records in input topic
+TOTAL=$($KAFKA_DIR/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+    --broker-list $KAFKA_BROKER --topic $INPUT_TOPIC --time -1 2>/dev/null \
+    | awk -F: '{sum += $3} END {print sum}')
+
+if [ -z "$TOTAL" ] || [ "$TOTAL" -le 0 ] 2>/dev/null; then
+    echo "  ERROR: No records in input topic. Run setup first (see run.md)."
+    exit 1
+fi
+echo "  Input topic has $TOTAL records"
+
 echo ""
-echo "[6/7] Starting Flink job..."
+echo "[3/3] Starting Flink job..."
 $FLINK_DIR/bin/flink run -p $PARALLELISM -d $JAR_DIR/etl-flink-1.0.0.jar \
     --kafka.bootstrap.servers $KAFKA_BROKERS \
     --kafka.config.topic $CONFIG_TOPIC \
     --kafka.input.topic $INPUT_TOPIC \
     --kafka.output.topic $OUTPUT_TOPIC 2>&1 | grep -i "submitted" || true
 
-echo "[7/7] Measuring pure processing time..."
-echo "  Waiting for Flink to start consuming data..."
+echo "  Waiting for Flink to start consuming..."
 
-# Wait until Flink starts consuming data records (offset > 0 on input topic)
-# This excludes Flink init time (JVM startup, config loading, task deployment)
+# Wait until Flink starts consuming (offset > 0) — excludes JVM init, task deployment
 WAIT_COUNT=0
 MAX_WAIT=120  # 60 seconds timeout (120 * 0.5s)
 while true; do
@@ -127,17 +86,16 @@ while true; do
     WAIT_COUNT=$((WAIT_COUNT + 1))
     if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
         echo "  ERROR: Flink did not start consuming within 60s. Check Flink dashboard."
-        kill $API_PID 2>/dev/null || true
         exit 1
     fi
     sleep 0.5
 done
 
-# START timing: Flink is now actively processing data
+# START timer — Flink is now actively processing
 START_TIME=$(date +%s)
 echo "  Processing started at $(date '+%H:%M:%S')"
 
-# Poll until all input records are consumed
+# Poll until all input records consumed
 while true; do
     OFFSET=$($KAFKA_DIR/bin/kafka-consumer-groups.sh \
         --bootstrap-server $KAFKA_BROKER \
@@ -152,7 +110,7 @@ while true; do
     sleep 1
 done
 
-# END timing: all input records consumed
+# STOP timer
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 
@@ -181,6 +139,3 @@ echo "  Output records:   $OUTPUT_COUNT"
 echo "  Processing time:  ${DURATION}s"
 echo "  Throughput:       $THROUGHPUT rec/sec"
 echo "=========================================="
-
-# Cleanup
-kill $API_PID 2>/dev/null || true

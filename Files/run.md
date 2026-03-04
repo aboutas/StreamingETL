@@ -36,52 +36,15 @@ cd /home/avoutas/boutasThesis
 chmod +x run-benchmark.sh
 
 ################################################################################
-# PHASE 4: RUN AUTOMATED BENCHMARK (RECOMMENDED)
+# PHASE 4: SETUP (manual, before benchmarks)
 ################################################################################
 #
-# run-benchmark.sh does everything automatically:
-#   1. Stops existing Flink jobs
-#   2. Resets all Kafka topics (delete + recreate)
-#   3. Starts API & submits 4 configs
-#   4. Produces N records at max speed
-#   5. Deletes consumer group for clean start
-#   6. Starts Flink job
-#   7. Measures pure processing time (excludes Flink init)
-#
-# Usage: ./run-benchmark.sh <parallelism> [records]
-# Default records: 2000000
+# Do this once before running benchmarks. Redo when changing record counts.
 
-cd /home/avoutas/boutasThesis
-
-./run-benchmark.sh 4               # p=4,  2M records
-./run-benchmark.sh 4 500000        # p=4,  500K records
-./run-benchmark.sh 8 1000000       # p=8,  1M records
-./run-benchmark.sh 11 2000000      # p=11, 2M records
-./run-benchmark.sh 22 2000000      # p=22, 2M records
-
-# Output shows:
-#   - Input records (actual count from topic)
-#   - Output records
-#   - Pure processing time (seconds)
-#   - Throughput (records/sec)
-
-# FOR SUBSEQUENT TESTS: just run again, it resets everything automatically.
-
-################################################################################
-# MANUAL STEP-BY-STEP (for debugging or custom tests)
-################################################################################
-#
-# Use this when you need more control (custom configs, verify topics, etc.)
-#
-
-### Step 1: Reset topics
+### Step 1: Reset topics (delete + recreate all 3)
 
 cd /usr/hdp/current/kafka-broker
 
-# Reset consumer group
-bin/kafka-consumer-groups.sh --bootstrap-server clu02.softnet.tuc.gr:6667 --group etl-flink-consumer --delete 2>/dev/null || true
-
-# Delete and recreate all topics
 bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.input.v1 2>/dev/null || true
 bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.config.v1 2>/dev/null || true
 bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.output.v1 2>/dev/null || true
@@ -90,10 +53,44 @@ bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication
 bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication-factor 2 --partitions 4 --topic etl.config.v1
 bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication-factor 2 --partitions 4 --topic etl.output.v1
 
-### Step 2: Verify topics are empty (optional)
+### Step 2: Start API, submit configs, then kill API
+
+cd /home/avoutas/boutasThesis
+
+java -jar etl-api-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.config.topic=etl.config.v1 \
+    --server.port=8080 &
+sleep 10
+
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-clean-data.json
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-elements.json
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-9.json
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-high-light.json
+
+# Expected response per config: {"jobId":"...","status":"REGISTERED",...}
+
+# Kill API after configs are submitted
+pkill -f "etl-api-1.0.0.jar"
+
+### Step 3: Run file producer with N records
+
+cd /home/avoutas/boutasThesis
+
+# Change --producer.max.records for different test sizes
+# Producer generates 48 records/cycle (8 locations x 6 sensor types)
+java -jar etl-file-producer-1.0.0.jar \
+    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+    --kafka.input.topic=etl.input.v1 \
+    --producer.max.records=2000000 \
+    --producer.rate.per.sec=50000
+
+# Wait for completion (logs: "Random data production COMPLETED")
+# Producer exits automatically when max records reached
+
+### Step 4: Verify record counts
 
 cd /usr/hdp/current/kafka-broker
-bin/kafka-topics.sh --list --zookeeper clu01.softnet.tuc.gr:2182 | grep etl
 
 bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
     --broker-list clu02.softnet.tuc.gr:6667 \
@@ -105,84 +102,36 @@ bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
     --topic etl.config.v1 \
     --time -1 | awk -F: '{sum += $3} END {print "etl.config.v1: " sum " records"}'
 
-bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
-    --broker-list clu02.softnet.tuc.gr:6667 \
-    --topic etl.output.v1 \
-    --time -1 | awk -F: '{sum += $3} END {print "etl.output.v1: " sum " records"}'
-
-### Step 3: Start API & submit configs
-
-cd /home/avoutas/boutasThesis
-
-# Start API in background
-java -jar etl-api-1.0.0.jar \
-    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
-    --kafka.config.topic=etl.config.v1 \
-    --server.port=8080 &
-sleep 10
-
-# Submit configs (choose how many you need for the test)
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-clean-data.json
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-elements.json
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-9.json
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-high-light.json
-
-# Expected response per config: {"jobId":"...","status":"REGISTERED",...}
-
-### Step 4: Produce data
+################################################################################
+# PHASE 5: RUN BENCHMARK (repeatable)
+################################################################################
+#
+# run-benchmark.sh does 3 things:
+#   1. Stops existing Flink jobs
+#   2. Deletes consumer group (clean offsets)
+#   3. Submits Flink job & measures pure processing time (excludes Flink init)
+#
+# Usage: ./run-benchmark.sh <parallelism>
 
 cd /home/avoutas/boutasThesis
 
-# Change --producer.max.records for different test sizes
-# Producer generates 48 records/cycle (8 locations x 6 sensor types)
-# With rate=50000 it produces at maximum speed
-java -jar etl-file-producer-1.0.0.jar \
-    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
-    --kafka.input.topic=etl.input.v1 \
-    --producer.max.records=500000 \
-    --producer.rate.per.sec=50000
+./run-benchmark.sh 4          # p=4
+./run-benchmark.sh 8          # p=8
+./run-benchmark.sh 11         # p=11
+./run-benchmark.sh 22         # p=22
 
-# Wait for completion (logs: "Random data production COMPLETED")
-# Producer exits automatically when max records reached
-
-### Step 5: Stop existing Flink jobs
-
-cd /usr/local/flink
-./bin/flink list
-./bin/flink cancel <JOB-ID>
-
-### Step 6: Delete consumer group (clean offsets)
-
-cd /usr/hdp/current/kafka-broker
-bin/kafka-consumer-groups.sh --bootstrap-server clu02.softnet.tuc.gr:6667 --group etl-flink-consumer --delete 2>/dev/null || true
-
-### Step 7: Start Flink job
-
-cd /usr/local/flink
-./bin/flink run -p 4 -d /home/avoutas/boutasThesis/etl-flink-1.0.0.jar \
-    --kafka.bootstrap.servers clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
-    --kafka.config.topic etl.config.v1 \
-    --kafka.input.topic etl.input.v1 \
-    --kafka.output.topic etl.output.v1
-
-# Verify: ./bin/flink list  (should show RUNNING)
-# Dashboard: http://clu01.softnet.tuc.gr:8081
-
-### Step 8: Monitor processing
-
-cd /usr/hdp/current/kafka-broker
-
-# Watch consumer lag (offset vs end-offset)
-bin/kafka-consumer-groups.sh \
-    --bootstrap-server clu02.softnet.tuc.gr:6667 \
-    --group etl-flink-consumer \
-    --describe
-
-# Watch output topic
-bin/kafka-console-consumer.sh \
-    --bootstrap-server clu02.softnet.tuc.gr:6667 \
-    --topic etl.output.v1 \
-    --from-beginning
+# Re-run with different parallelism — no need to redo setup.
+# Each run resets consumer group → fresh Flink job → pure timing.
+#
+# For different record counts:
+#   Redo Phase 4 Steps 1 + 3 (configs stay in their topic)
+#   Then run benchmarks again.
+#
+# Output shows:
+#   - Input records (actual count from topic)
+#   - Output records
+#   - Pure processing time (seconds)
+#   - Throughput (records/sec)
 
 ################################################################################
 # HELPER: SEND CONFIG DIRECTLY TO KAFKA (without API)
@@ -246,14 +195,11 @@ cd /usr/local/flink
 ./bin/flink list
 ./bin/flink cancel <JOB-ID>
 
-# Stop ETL API
+# Stop ETL API (if still running)
 ps aux | grep etl-api
 kill <PID>
 
 # File Producer stops automatically when --producer.max.records=N is set
-# Only kill if running in continuous mode (--producer.max.records=-1):
-# ps aux | grep etl-file-producer
-# kill <PID>
 
 ################################################################################
 # PARALLELISM OPTIONS
@@ -270,11 +216,11 @@ kill <PID>
 # TEST PARAMETERS SUMMARY
 ################################################################################
 #
-# | Parameter     | Where to Change                              | Examples                |
-# |---------------|----------------------------------------------|-------------------------|
-# | Records       | run-benchmark.sh 2nd arg / --producer.max.records | 100000, 500000, 2000000 |
-# | Configs       | run-benchmark.sh has 4 hardcoded / manual: choose | 1, 2, 4 configs         |
-# | Parallelism   | run-benchmark.sh 1st arg / flink run -p N    | 4, 8, 11, 22           |
+# | Parameter     | Where to Change                          | Examples                |
+# |---------------|------------------------------------------|-------------------------|
+# | Records       | Phase 4 Step 3: --producer.max.records   | 100000, 500000, 2000000 |
+# | Configs       | Phase 4 Step 2: choose which to submit   | 1, 2, 4 configs         |
+# | Parallelism   | Phase 5: ./run-benchmark.sh <N>          | 4, 8, 11, 22           |
 #
 # Producer properties:
 #   --producer.max.records=N     Number of records to produce (-1 = unlimited)
@@ -298,4 +244,4 @@ kill <PID>
 #
 # No output in Kafka:
 #   -> Check Flink job: cd /usr/local/flink && ./bin/flink list
-#   -> Check input topic has data (see Step 2 verify commands above)
+#   -> Check input topic has data (see Phase 4 Step 4)
