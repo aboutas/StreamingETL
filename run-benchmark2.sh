@@ -1,14 +1,14 @@
 #!/bin/bash
 ################################################################################
-# ETL Flink Benchmark - End-to-End Processing Time
+# ETL Flink Benchmark 2 - Read + Transform Time (excludes output write)
 #
 # Prerequisite: topics, configs, and data must already be set up (see run.md).
-# This script ONLY submits the Flink job and measures end-to-end ETL time:
-#   START: Flink begins consuming input (excludes JVM init, task deployment)
-#   STOP:  All output records written (output topic stops growing)
+# Measures: START when Flink begins consuming → STOP when all input consumed.
+# This captures read + transform time only (output write happens in parallel
+# but any remaining writes after input is consumed are NOT included).
 #
-# Usage: ./run-benchmark.sh <parallelism>
-# Example: ./run-benchmark.sh 4
+# Usage: ./run-benchmark2.sh <parallelism>
+# Example: ./run-benchmark2.sh 4
 ################################################################################
 
 KAFKA_BROKER="clu02.softnet.tuc.gr:6667"
@@ -24,7 +24,7 @@ OUTPUT_TOPIC="etl.output.v1"
 PARALLELISM=${1:?"Usage: $0 <parallelism>  Example: $0 4"}
 
 echo "=========================================="
-echo "  ETL FLINK BENCHMARK"
+echo "  ETL FLINK BENCHMARK 2 (read + transform)"
 echo "  Parallelism: $PARALLELISM"
 echo "=========================================="
 
@@ -59,7 +59,7 @@ sleep 2
 echo "  Done"
 
 ################################################################################
-# STEP 3: Submit Flink job & measure end-to-end processing time
+# STEP 3: Submit Flink job & measure read + transform time
 ################################################################################
 
 # Count total records in input topic
@@ -109,7 +109,7 @@ done
 START_TIME=$(date +%s%N)
 echo "  Processing started at $(date '+%H:%M:%S')"
 
-# Phase 1: Poll until all input records consumed
+# Poll until all input records consumed
 while true; do
     OFFSET=$($KAFKA_DIR/bin/kafka-consumer-groups.sh \
         --bootstrap-server $KAFKA_BROKER \
@@ -123,31 +123,8 @@ while true; do
     [ "$OFFSET" -ge "$TOTAL" ] && break
     sleep 1
 done
-echo ""
-echo "  All input consumed at $(date '+%H:%M:%S')"
 
-# Phase 2: Wait for output to stabilize (no new records for 3 consecutive checks)
-echo "  Waiting for output to finish writing..."
-STABLE_COUNT=0
-PREV_OUTPUT=0
-while [ $STABLE_COUNT -lt 3 ]; do
-    sleep 2
-    OUTPUT_COUNT=$($KAFKA_DIR/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
-        --broker-list $KAFKA_BROKER --topic $OUTPUT_TOPIC --time -1 2>/dev/null \
-        | awk -F: '{sum += $3} END {print sum}')
-    [ -z "$OUTPUT_COUNT" ] && OUTPUT_COUNT=0
-
-    printf "\r  Output records: %d" "$OUTPUT_COUNT"
-
-    if [ "$OUTPUT_COUNT" -eq "$PREV_OUTPUT" ] && [ "$OUTPUT_COUNT" -gt 0 ]; then
-        STABLE_COUNT=$((STABLE_COUNT + 1))
-    else
-        STABLE_COUNT=0
-    fi
-    PREV_OUTPUT=$OUTPUT_COUNT
-done
-
-# STOP timer — all output written
+# STOP timer — all input consumed + transformed (via backpressure)
 END_TIME=$(date +%s%N)
 
 # Calculate duration in milliseconds
@@ -156,15 +133,19 @@ DURATION_S=$((DURATION_MS / 1000))
 DURATION_FRAC=$((DURATION_MS % 1000))
 
 echo ""
-echo "  Output finished at $(date '+%H:%M:%S')"
+echo "  All input consumed at $(date '+%H:%M:%S')"
 
-# Calculate throughputs
+# Wait for output to stabilize, then count
+sleep 5
+OUTPUT_COUNT=$($KAFKA_DIR/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+    --broker-list $KAFKA_BROKER --topic $OUTPUT_TOPIC --time -1 2>/dev/null \
+    | awk -F: '{sum += $3} END {print sum}')
+
+# Calculate throughput
 if [ "$DURATION_S" -gt 0 ]; then
-    INPUT_THROUGHPUT=$((TOTAL * 1000 / DURATION_MS))
-    OUTPUT_THROUGHPUT=$((OUTPUT_COUNT * 1000 / DURATION_MS))
+    THROUGHPUT=$((TOTAL * 1000 / DURATION_MS))
 else
-    INPUT_THROUGHPUT="N/A (< 1s)"
-    OUTPUT_THROUGHPUT="N/A (< 1s)"
+    THROUGHPUT="N/A (< 1s)"
 fi
 
 # Processing ratio
@@ -176,14 +157,13 @@ fi
 
 echo ""
 echo "=========================================="
-echo "  RESULTS"
+echo "  RESULTS (read + transform, no write)"
 echo "=========================================="
 echo "  Parallelism:        $PARALLELISM"
 echo "  Configs:            $CONFIGS"
 echo "  Input records:      $TOTAL"
 echo "  Output records:     $OUTPUT_COUNT"
 echo "  Processing ratio:   ${RATIO}%"
-echo "  End-to-end time:    ${DURATION_S}.${DURATION_FRAC}s"
-echo "  Input throughput:   $INPUT_THROUGHPUT rec/sec"
-echo "  Output throughput:  $OUTPUT_THROUGHPUT rec/sec"
+echo "  Processing time:    ${DURATION_S}.${DURATION_FRAC}s"
+echo "  Throughput:         $THROUGHPUT rec/sec"
 echo "=========================================="
