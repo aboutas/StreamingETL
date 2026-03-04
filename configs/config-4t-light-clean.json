@@ -1,0 +1,32 @@
+{
+  "jobId": "4t-light-clean",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "filter_greater",
+      "params": {
+        "sensor": "light",
+        "field": "measurement",
+        "threshold": 100
+      }
+    },
+    {
+      "type": "to_lowercase",
+      "params": {
+        "field": "measurement_unit"
+      }
+    },
+    {
+      "type": "trim_whitespace",
+      "params": {
+        "field": "location"
+      }
+    },
+    {
+      "type": "to_uppercase",
+      "params": {
+        "field": "sensor"
+      }
+    }
+  ]
+}

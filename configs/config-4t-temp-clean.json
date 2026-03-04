@@ -1,0 +1,32 @@
+{
+  "jobId": "4t-temp-clean",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "filter_greater",
+      "params": {
+        "sensor": "temperature",
+        "field": "measurement",
+        "threshold": 20
+      }
+    },
+    {
+      "type": "to_lowercase",
+      "params": {
+        "field": "location"
+      }
+    },
+    {
+      "type": "trim_whitespace",
+      "params": {
+        "field": "sensor"
+      }
+    },
+    {
+      "type": "to_uppercase",
+      "params": {
+        "field": "measurement_unit"
+      }
+    }
+  ]
+}

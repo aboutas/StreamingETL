@@ -1,0 +1,32 @@
+{
+  "jobId": "4t-pressure-clean",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "filter_greater",
+      "params": {
+        "sensor": "pressure",
+        "field": "measurement",
+        "threshold": 900
+      }
+    },
+    {
+      "type": "to_lowercase",
+      "params": {
+        "field": "data_quality"
+      }
+    },
+    {
+      "type": "trim_whitespace",
+      "params": {
+        "field": "measurement_unit"
+      }
+    },
+    {
+      "type": "to_uppercase",
+      "params": {
+        "field": "location"
+      }
+    }
+  ]
+}

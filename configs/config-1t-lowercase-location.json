@@ -1,0 +1,12 @@
+{
+  "jobId": "1t-lowercase-location",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "to_lowercase",
+      "params": {
+        "field": "location"
+      }
+    }
+  ]
+}

@@ -25,6 +25,7 @@ scp flink/target/etl-flink-1.0.0.jar avoutas@clu04.softnet.tuc.gr:/home/avoutas/
 scp services/etl-api/target/etl-api-1.0.0.jar avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
 scp services/etl-file-producer/target/etl-file-producer-1.0.0.jar avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
 scp config-*.json avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
+scp -r configs/ avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
 scp run-benchmark.sh avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
 
 ################################################################################
@@ -63,10 +64,20 @@ java -jar etl-api-1.0.0.jar \
     --server.port=8080 &
 sleep 10
 
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-clean-data.json
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-elements.json
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-9.json
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-high-light.json
+# Option A: 4 configs with 1 transformation each
+for f in configs/config-1t-*.json; do
+    curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @$f
+done
+
+# Option B: 4 configs with 4 transformations each
+for f in configs/config-4t-*.json; do
+    curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @$f
+done
+
+# Option C: All 8 configs
+for f in configs/*.json; do
+    curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @$f
+done
 
 # Expected response per config: {"jobId":"...","status":"REGISTERED",...}
 

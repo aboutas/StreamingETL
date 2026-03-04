@@ -1,0 +1,14 @@
+{
+  "jobId": "1t-filter-humidity",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "filter_greater",
+      "params": {
+        "sensor": "humidity",
+        "field": "measurement",
+        "threshold": 50
+      }
+    }
+  ]
+}

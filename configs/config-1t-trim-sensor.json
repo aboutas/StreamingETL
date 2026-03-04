@@ -1,0 +1,12 @@
+{
+  "jobId": "1t-trim-sensor",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "trim_whitespace",
+      "params": {
+        "field": "sensor"
+      }
+    }
+  ]
+}

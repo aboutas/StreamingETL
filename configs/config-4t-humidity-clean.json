@@ -1,0 +1,32 @@
+{
+  "jobId": "4t-humidity-clean",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "filter_greater",
+      "params": {
+        "sensor": "humidity",
+        "field": "measurement",
+        "threshold": 30
+      }
+    },
+    {
+      "type": "to_lowercase",
+      "params": {
+        "field": "sensor"
+      }
+    },
+    {
+      "type": "trim_whitespace",
+      "params": {
+        "field": "location"
+      }
+    },
+    {
+      "type": "to_uppercase",
+      "params": {
+        "field": "data_quality"
+      }
+    }
+  ]
+}

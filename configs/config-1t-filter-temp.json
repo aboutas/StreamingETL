@@ -1,0 +1,14 @@
+{
+  "jobId": "1t-filter-temp",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "filter_greater",
+      "params": {
+        "sensor": "temperature",
+        "field": "measurement",
+        "threshold": 25
+      }
+    }
+  ]
+}
