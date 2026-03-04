@@ -127,9 +127,11 @@ echo ""
 echo "  All input consumed at $(date '+%H:%M:%S')"
 
 # Phase 2: Wait for output to stabilize (no new records for 3 consecutive checks)
+# Timer captures the moment output LAST grew, not the confirmation wait after
 echo "  Waiting for output to finish writing..."
 STABLE_COUNT=0
 PREV_OUTPUT=0
+LAST_GROW_TIME=$(date +%s%N)
 while [ $STABLE_COUNT -lt 3 ]; do
     sleep 2
     OUTPUT_COUNT=$($KAFKA_DIR/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
@@ -143,12 +145,13 @@ while [ $STABLE_COUNT -lt 3 ]; do
         STABLE_COUNT=$((STABLE_COUNT + 1))
     else
         STABLE_COUNT=0
+        LAST_GROW_TIME=$(date +%s%N)
     fi
     PREV_OUTPUT=$OUTPUT_COUNT
 done
 
-# STOP timer — all output written
-END_TIME=$(date +%s%N)
+# STOP timer — last time output grew (excludes stabilization wait)
+END_TIME=$LAST_GROW_TIME
 
 # Calculate duration in milliseconds
 DURATION_MS=$(( (END_TIME - START_TIME) / 1000000 ))
