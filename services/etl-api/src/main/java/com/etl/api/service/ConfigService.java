@@ -25,7 +25,7 @@ public class ConfigService {
     private static final List<String> VALID_TRANSFORMATIONS = Arrays.asList(
             // Element transformations (filters and data cleaning)
             "filter_greater", "filter_less", "filter_cross_field",
-            "normalize", "to_lowercase", "trim_whitespace",
+            "normalize", "to_lowercase", "to_uppercase", "trim_whitespace",
             // Aggregation transformations
             "sum", "max", "min", "avg"
     );

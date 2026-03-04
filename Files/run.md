@@ -58,28 +58,29 @@ bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication
 
 cd /home/avoutas/boutasThesis
 
+# Start API in background
 java -jar etl-api-1.0.0.jar \
     --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
     --kafka.config.topic=etl.config.v1 \
     --server.port=8080 &
-sleep 10
+
+# Wait for Spring Boot to start (watch for "Started EtlApiApplication" in logs)
+# Then verify API is alive:
+curl -s http://localhost:8080/health
 
 # Option A: 4 configs with 1 transformation each
-for f in configs/config-1t-*.json; do
-    curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @$f
-done
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-filter-temp.json
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-filter-humidity.json
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-lowercase-location.json
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-trim-sensor.json
 
 # Option B: 4 configs with 4 transformations each
-for f in configs/config-4t-*.json; do
-    curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @$f
-done
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-temp-clean.json
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-humidity-clean.json
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-light-clean.json
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-pressure-clean.json
 
-# Option C: All 8 configs
-for f in configs/*.json; do
-    curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @$f
-done
-
-# Expected response per config: {"jobId":"...","status":"REGISTERED",...}
+# Expected response per config: {"status":"success","jobId":"...","message":"Configuration submitted successfully"}
 
 # Kill API after configs are submitted
 pkill -f "etl-api-1.0.0.jar"
