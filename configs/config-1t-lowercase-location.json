@@ -5,6 +5,7 @@
     {
       "type": "to_lowercase",
       "params": {
+        "sensor": "temperature",
         "field": "location"
       }
     }

@@ -5,6 +5,7 @@
     {
       "type": "trim_whitespace",
       "params": {
+        "sensor": "humidity",
         "field": "sensor"
       }
     }
