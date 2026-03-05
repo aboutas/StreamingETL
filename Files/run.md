@@ -64,6 +64,8 @@ java -jar etl-api-1.0.0.jar \
     --kafka.config.topic=etl.config.v1 \
     --server.port=8080 &
 
+ java -jar etl-api-1.0.0.jar --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 --kafka.config.topic=etl.config.v1 --server.port=8080    
+
 # Wait for Spring Boot to start (watch for "Started EtlApiApplication" in logs)
 # Then verify API is alive:
 curl -s http://localhost:8080/health
