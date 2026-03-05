@@ -1,0 +1,13 @@
+{
+  "jobId": "1t-trim-location",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "trim_whitespace",
+      "params": {
+        "sensor": "noise",
+        "field": "location"
+      }
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "jobId": "4t-noise-clean",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "filter_greater",
+      "params": {
+        "sensor": "noise",
+        "field": "measurement",
+        "threshold": 40
+      }
+    },
+    {
+      "type": "to_lowercase",
+      "params": {
+        "field": "sensor"
+      }
+    },
+    {
+      "type": "trim_whitespace",
+      "params": {
+        "field": "data_quality"
+      }
+    },
+    {
+      "type": "to_uppercase",
+      "params": {
+        "field": "measurement_unit"
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "jobId": "1t-filter-pressure",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "filter_greater",
+      "params": {
+        "sensor": "pressure",
+        "field": "measurement",
+        "threshold": 1000
+      }
+    }
+  ]
+}

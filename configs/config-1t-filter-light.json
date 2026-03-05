@@ -1,0 +1,14 @@
+{
+  "jobId": "1t-filter-light",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "filter_greater",
+      "params": {
+        "sensor": "light",
+        "field": "measurement",
+        "threshold": 300
+      }
+    }
+  ]
+}

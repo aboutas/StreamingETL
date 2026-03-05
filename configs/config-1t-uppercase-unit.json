@@ -1,0 +1,13 @@
+{
+  "jobId": "1t-uppercase-unit",
+  "source": "kafka://etl.input.v1",
+  "transformations": [
+    {
+      "type": "to_uppercase",
+      "params": {
+        "sensor": "temperature",
+        "field": "measurement_unit"
+      }
+    }
+  ]
+}
