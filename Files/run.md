@@ -69,17 +69,45 @@ java -jar etl-api-1.0.0.jar \
 # Then verify API is alive:
 curl -s http://localhost:8080/health
 
-# Option A: 4 configs with 1 transformation each
+# === 1-TRANSFORMATION CONFIGS (pick 1/2/4/6/8) ===
+
+# 1 config
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-filter-temp.json
+
+# 2 configs (add)
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-filter-humidity.json
+
+# 4 configs (add)
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-lowercase-location.json
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-trim-sensor.json
 
-# Option B: 4 configs with 4 transformations each
+# 6 configs (add)
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-filter-pressure.json
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-filter-light.json
+
+# 8 configs (add)
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-uppercase-unit.json
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-trim-location.json
+
+# === 4-TRANSFORMATION CONFIGS (pick 1/2/4/6/8) ===
+
+# 1 config
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-temp-clean.json
+
+# 2 configs (add)
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-humidity-clean.json
+
+# 4 configs (add)
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-light-clean.json
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-pressure-clean.json
+
+# 6 configs (add)
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-air-quality-clean.json
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-noise-clean.json
+
+# 8 configs (add)
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-temp-advanced.json
+curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-humidity-advanced.json
 
 # Expected response per config: {"status":"success","jobId":"...","message":"Configuration submitted successfully"}
 
