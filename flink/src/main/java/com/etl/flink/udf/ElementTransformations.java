@@ -85,7 +85,6 @@ public class ElementTransformations {
 
     /**
      * Normalize transformation - Min-Max scaling to [0, 1] range
-     * Use case: ML feature preparation, data normalization
      */
     public static class NormalizeFunction implements MapFunction<SensorEvent, SensorEvent> {
         private final String field;
@@ -116,7 +115,6 @@ public class ElementTransformations {
 
     /**
      * To lowercase transformation - Normalize text fields to lowercase
-     * Use case: Standardize location names, sensor types for consistency
      */
     public static class ToLowercaseFunction implements MapFunction<SensorEvent, SensorEvent> {
         private final String field;
@@ -155,7 +153,6 @@ public class ElementTransformations {
 
     /**
      * To uppercase transformation - Normalize text fields to uppercase
-     * Use case: Standardize location names, sensor types for consistency
      */
     public static class ToUppercaseFunction implements MapFunction<SensorEvent, SensorEvent> {
         private final String field;
@@ -194,7 +191,6 @@ public class ElementTransformations {
 
     /**
      * Trim whitespace transformation - Remove leading/trailing spaces
-     * Use case: Clean string fields from data entry errors
      */
     public static class TrimWhitespaceFunction implements MapFunction<SensorEvent, SensorEvent> {
         private final String field;
