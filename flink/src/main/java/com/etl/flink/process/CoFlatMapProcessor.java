@@ -99,7 +99,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
 
     private void processEventWithConfig(SensorEvent event, EtlConfig config, Collector<EtlResult> out) throws Exception {
         if (config.getTransformations() == null || config.getTransformations().isEmpty()) {
-            createSimpleResult(event, config, out);
+            createFinalResult(event, config, out);
             return;
         }
 
@@ -259,23 +259,6 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
             default:
                 return null;
         }
-    }
-
-    private void createSimpleResult(SensorEvent event, EtlConfig config, Collector<EtlResult> out) {
-        EtlResult result = new EtlResult();
-        result.setJobId(config.getJobId());
-        result.setTransformations(config.getTransformations());
-        result.setGroupingField("sensor");
-        result.setGroupingKey(event.getSensor());
-        result.setResult(event);
-        result.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
-
-        // Add sensor context information
-        result.setSensorType(event.getSensor());
-        result.setMeasurementUnit(event.getMeasurementUnit());
-        result.setLocation(event.getLocation());
-
-        out.collect(result);
     }
 
     private void createFinalResult(SensorEvent event, EtlConfig config, Collector<EtlResult> out) {

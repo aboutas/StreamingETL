@@ -12,9 +12,6 @@ docker exec etl-flink-project-flink-jobmanager-1 flink run -c com.etl.flink.EtlF
 
 # 5. Submit all 4 configurations
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-quality-analysis.json
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-comprehensive-dashboard.json
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-server-environmental.json
-curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-temperature-monitoring.json
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @config-test123.json
 
 

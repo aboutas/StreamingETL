@@ -21,8 +21,6 @@ import org.apache.flink.streaming.api.windowing.time.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
@@ -64,35 +62,21 @@ public class EtlFlinkJob {
                 .setValueOnlyDeserializer(new SafeStringDeserializer())
                 .build();
 
-        // Create configuration stream - keyed by same field as data stream 
+        // Create configuration stream - keyed by same field as data stream
         DataStream<EtlConfig> configStream = env
                 .fromSource(configSource, WatermarkStrategy.noWatermarks(), "Config Source")
                 .map(new ConfigDeserializer())
                 .filter(config -> config != null)
                 .keyBy(new ConfigKeyExtractor()); // Key configs by their target keyBy field
 
-        // Create keyed event stream 
+        // Create keyed event stream
         DataStream<SensorEvent> eventStream = env
-                .fromSource(dataSource,
-                        WatermarkStrategy.<String>forBoundedOutOfOrderness(Duration.ofSeconds(5))
-                                .withTimestampAssigner((event, timestamp) -> {
-                                    try {
-                                        SensorEvent sensorEvent = EventDeserializer.MAPPER.readValue(event, SensorEvent.class);
-                                        if (sensorEvent != null && sensorEvent.getDatetime() != null) {
-                                            return sensorEvent.getDatetime().toEpochMilli();
-                                        }
-                                        return ZonedDateTime.now(GREEK_TIMEZONE).toInstant().toEpochMilli();
-                                    } catch (Exception e) {
-                                        LOG.warn("Failed to extract timestamp from event: {}", event, e);
-                                        return ZonedDateTime.now(GREEK_TIMEZONE).toInstant().toEpochMilli();
-                                    }
-                                }),
-                        "Data Source")
+                .fromSource(dataSource, WatermarkStrategy.noWatermarks(), "Data Source")
                 .map(new EventDeserializer())
                 .filter(event -> event != null)
                 .keyBy(event -> event.getSensor()); // Key by sensor type for parallelism
 
-        // TRUE CoFlatMap: Both streams keyed by same field for optimal distribution
+        // CoFlatMap: Both streams keyed by same fielδ
         DataStream<EtlResult> processedStream = configStream
                 .connect(eventStream)
                 .flatMap(new CoFlatMapProcessor());
@@ -102,18 +86,9 @@ public class EtlFlinkJob {
                 .filter(result -> result.getAggregationType() == null);
 
         DataStream<EtlResult> dataResults = processedStream
-                .filter(result -> result.getAggregationType() != null)
-                .assignTimestampsAndWatermarks(
-                    WatermarkStrategy.<EtlResult>forBoundedOutOfOrderness(Duration.ofSeconds(5))
-                        .withTimestampAssigner((result, timestamp) -> {
-                            if (result.getProcessedAt() != null) {
-                                return result.getProcessedAt().toEpochMilli();
-                            }
-                            return Instant.now().toEpochMilli();
-                        })
-                );
+                .filter(result -> result.getAggregationType() != null);
 
-        // Windowing: 3-second tumbling windows
+       
         DataStream<EtlResult> windowedResults = dataResults
                 .keyBy(result -> {
                     return String.format("%s|%s|%s",
@@ -122,7 +97,7 @@ public class EtlFlinkJob {
                         result.getAggregationType() != null ? result.getAggregationType() : "none"
                     );
                 })
-                .window(TumblingProcessingTimeWindows.of(Time.seconds(3)))
+                .window(TumblingProcessingTimeWindows.of(Time.seconds(10)))
                 .aggregate(new WindowAggregator());
 
         // Union all results

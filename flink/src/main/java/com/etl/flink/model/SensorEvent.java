@@ -1,6 +1,5 @@
 package com.etl.flink.model;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
@@ -28,23 +27,6 @@ public class SensorEvent {
     private String dataQuality;
 
     public SensorEvent() {}
-
-    public SensorEvent(String sensor, Double measurement, String measurementUnit, Instant datetime, String location) {
-        this(sensor, measurement, measurementUnit, datetime, location, null);
-    }
-
-    public SensorEvent(String sensor, Double measurement, String measurementUnit, Instant datetime, String location, String dataQuality) {
-        this.sensor = sensor;
-        this.measurement = measurement;
-        this.measurementUnit = measurementUnit;
-        this.datetime = datetime;
-        this.location = location;
-        this.dataQuality = dataQuality;
-    }
-
-    public SensorEvent(String sensor, Double measurement, String measurementUnit, Instant datetime) {
-        this(sensor, measurement, measurementUnit, datetime, null);
-    }
 
     public String getSensor() {
         return sensor;

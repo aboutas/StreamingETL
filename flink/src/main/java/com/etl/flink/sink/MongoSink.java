@@ -93,12 +93,10 @@ public class MongoSink extends RichSinkFunction<EtlResult> {
                 result.getTransformations() != null ? result.getTransformations().hashCode() : 0
         );
 
-        return String.format("job:%s|g:%s:%s|ws:%s|we:%s|agg:%s|f:%s|h:%s",
+        return String.format("job:%s|g:%s:%s|agg:%s|f:%s|h:%s",
                 result.getJobId() != null ? result.getJobId() : "unknown",
                 result.getGroupingField() != null ? result.getGroupingField() : "default",
                 result.getGroupingKey() != null ? result.getGroupingKey() : "default",
-                result.getWindowStart() != null ? result.getWindowStart().toString() : "none",
-                result.getWindowEnd() != null ? result.getWindowEnd().toString() : "none",
                 result.getAggregationType() != null ? result.getAggregationType() : "none",
                 result.getField() != null ? result.getField() : "default",
                 transformationsHash
@@ -116,13 +114,6 @@ public class MongoSink extends RichSinkFunction<EtlResult> {
                 .append("result", convertResultToDocument(result.getResult()))
                 .append("processedAt", result.getProcessedAt() != null ?
                         result.getProcessedAt().toString() : ZonedDateTime.now(GREEK_TIMEZONE).toInstant().toString());
-
-        if (result.getWindowStart() != null) {
-            doc.append("windowStart", result.getWindowStart().toString());
-        }
-        if (result.getWindowEnd() != null) {
-            doc.append("windowEnd", result.getWindowEnd().toString());
-        }
 
         if (result.getTransformations() != null) {
             List<Document> transformationDocs = new ArrayList<>();
