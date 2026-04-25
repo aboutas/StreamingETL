@@ -48,7 +48,10 @@
       "Bash(xargs ls:*)",
       "Bash(tree:*)",
       "Bash(py generate_plots.py:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(grep \"\\\\.java$\")",
+      "Bash(mvn compile:*)",
+      "Bash(git *)"
     ],
     "deny": [],
     "ask": []

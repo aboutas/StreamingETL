@@ -13,8 +13,7 @@ import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -26,8 +25,6 @@ import java.util.Map;
  */
 public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorEvent, EtlResult> {
     private static final Logger LOG = LoggerFactory.getLogger(CoFlatMapProcessor.class);
-    private static final ZoneId GREEK_TIMEZONE = ZoneId.of("Europe/Athens"); // UTC+2 (UTC+3 in summer)
-
     private transient MapState<String, EtlConfig> configState;
     // Cache transformation functions per config jobId to avoid recreating per event
     private final Map<String, List<org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent>>> transformationCache = new HashMap<>();
@@ -65,7 +62,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         configResult.setTransformations(config.getTransformations());
         configResult.setResult("Configuration registered successfully on subtask " +
                               getRuntimeContext().getIndexOfThisSubtask());
-        configResult.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
+        configResult.setProcessedAt(Instant.now());
 
         out.collect(configResult);
     }
@@ -99,7 +96,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
 
     private void processEventWithConfig(SensorEvent event, EtlConfig config, Collector<EtlResult> out) throws Exception {
         if (config.getTransformations() == null || config.getTransformations().isEmpty()) {
-            createSimpleResult(event, config, out);
+            createFinalResult(event, config, out);
             return;
         }
 
@@ -180,7 +177,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         result.setAggregationType(transformation.getType());
         result.setField(field);
         result.setResult(getFieldValue(event, field));
-        result.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
+        result.setProcessedAt(Instant.now());
 
         // Add sensor context information
         result.setSensorType(event.getSensor());
@@ -275,23 +272,6 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
     }
 
 
-    private void createSimpleResult(SensorEvent event, EtlConfig config, Collector<EtlResult> out) {
-        EtlResult result = new EtlResult();
-        result.setJobId(config.getJobId());
-        result.setTransformations(config.getTransformations());
-        result.setGroupingField("sensor");
-        result.setGroupingKey(event.getSensor());
-        result.setResult(event);
-        result.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
-
-        // Add sensor context information
-        result.setSensorType(event.getSensor());
-        result.setMeasurementUnit(event.getMeasurementUnit());
-        result.setLocation(event.getLocation());
-
-        out.collect(result);
-    }
-
     private void createFinalResult(SensorEvent event, EtlConfig config, Collector<EtlResult> out) {
         EtlResult result = new EtlResult();
         result.setJobId(config.getJobId());
@@ -299,7 +279,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         result.setGroupingField("sensor");
         result.setGroupingKey(event.getSensor());
         result.setResult(event);
-        result.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
+        result.setProcessedAt(Instant.now());
 
         // Add sensor context information
         result.setSensorType(event.getSensor());
@@ -316,7 +296,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         errorResult.setGroupingField("sensor");
         errorResult.setGroupingKey(event.getSensor());
         errorResult.setResult(null);
-        errorResult.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
+        errorResult.setProcessedAt(Instant.now());
 
         // Add sensor context information for error tracking
         errorResult.setSensorType(event.getSensor());

@@ -22,12 +22,6 @@ public class EtlResult {
     @JsonProperty("groupingKey")
     private String groupingKey;
 
-    @JsonProperty("windowStart")
-    private Instant windowStart;
-
-    @JsonProperty("windowEnd")
-    private Instant windowEnd;
-
     @JsonProperty("aggregationType")
     private String aggregationType;
 
@@ -89,22 +83,6 @@ public class EtlResult {
 
     public void setGroupingKey(String groupingKey) {
         this.groupingKey = groupingKey;
-    }
-
-    public Instant getWindowStart() {
-        return windowStart;
-    }
-
-    public void setWindowStart(Instant windowStart) {
-        this.windowStart = windowStart;
-    }
-
-    public Instant getWindowEnd() {
-        return windowEnd;
-    }
-
-    public void setWindowEnd(Instant windowEnd) {
-        this.windowEnd = windowEnd;
     }
 
     public String getAggregationType() {
