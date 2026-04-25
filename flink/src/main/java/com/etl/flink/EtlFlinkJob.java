@@ -135,7 +135,7 @@ public class EtlFlinkJob {
                 FlinkKafkaProducer.Semantic.AT_LEAST_ONCE
         );
 
-        allResults.addSink(kafkaProducer).name("Kafka Sink");
+        allResults.filter(result -> Math.random() < 0.0001).addSink(kafkaProducer).name("Kafka Sink");
 
         LOG.info("Executing ETL Flink Job");
         env.execute("ETL Flink Job");
