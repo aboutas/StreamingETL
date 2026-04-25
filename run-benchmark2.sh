@@ -34,10 +34,11 @@ echo "=========================================="
 
 echo ""
 echo "[1/3] Stopping existing Flink jobs..."
-for job in $($FLINK_DIR/bin/flink list -r 2>/dev/null | awk 'NR>3 {print $4}'); do
+for job in $($FLINK_DIR/bin/flink list -r 2>/dev/null | grep -oE '[0-9a-f]{32}'); do
+    echo "  Cancelling job: $job"
     $FLINK_DIR/bin/flink cancel $job 2>/dev/null || true
 done
-sleep 3
+sleep 5
 echo "  Done"
 
 ################################################################################
@@ -46,16 +47,42 @@ echo "  Done"
 
 echo "[2/3] Resetting for clean run..."
 
-# Delete consumer group
+# Delete consumer group (retry to ensure it's gone)
 $KAFKA_DIR/bin/kafka-consumer-groups.sh \
     --bootstrap-server $KAFKA_BROKER \
     --group $CONSUMER_GROUP --delete 2>/dev/null || true
+sleep 2
+
+# Verify consumer group is deleted
+CG_CHECK=$($KAFKA_DIR/bin/kafka-consumer-groups.sh \
+    --bootstrap-server $KAFKA_BROKER --list 2>/dev/null | grep -c "$CONSUMER_GROUP" || true)
+if [ "$CG_CHECK" -gt 0 ]; then
+    echo "  WARNING: Consumer group still exists, retrying delete..."
+    $KAFKA_DIR/bin/kafka-consumer-groups.sh \
+        --bootstrap-server $KAFKA_BROKER \
+        --group $CONSUMER_GROUP --delete 2>/dev/null || true
+    sleep 3
+fi
 
 # Reset output topic (delete + recreate) for accurate output count
 $KAFKA_DIR/bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic $OUTPUT_TOPIC 2>/dev/null || true
-sleep 3
+sleep 5
+
 $KAFKA_DIR/bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication-factor 2 --partitions 4 --topic $OUTPUT_TOPIC 2>/dev/null
-sleep 2
+sleep 3
+
+# Verify output topic is empty
+OUTPUT_CHECK=$($KAFKA_DIR/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+    --broker-list $KAFKA_BROKER --topic $OUTPUT_TOPIC --time -1 2>/dev/null \
+    | awk -F: '{sum += $3} END {print sum}')
+if [ -n "$OUTPUT_CHECK" ] && [ "$OUTPUT_CHECK" -gt 0 ]; then
+    echo "  WARNING: Output topic still has $OUTPUT_CHECK records after reset!"
+    echo "  Retrying topic deletion..."
+    $KAFKA_DIR/bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic $OUTPUT_TOPIC 2>/dev/null || true
+    sleep 5
+    $KAFKA_DIR/bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication-factor 2 --partitions 4 --topic $OUTPUT_TOPIC 2>/dev/null
+    sleep 3
+fi
 echo "  Done"
 
 ################################################################################
@@ -88,7 +115,8 @@ $FLINK_DIR/bin/flink run -p $PARALLELISM -d $JAR_DIR/etl-flink-1.0.0.jar \
 
 echo "  Waiting for Flink to start consuming..."
 
-# Wait until Flink starts consuming (offset > 0) — excludes JVM init, task deployment
+# Wait until Flink starts consuming — but reject stale offsets.
+# If offset appears already at TOTAL, consumer group wasn't properly reset.
 WAIT_COUNT=0
 MAX_WAIT=120  # 60 seconds timeout (120 * 0.5s)
 while true; do
@@ -96,6 +124,19 @@ while true; do
         --bootstrap-server $KAFKA_BROKER \
         --group $CONSUMER_GROUP --describe 2>/dev/null \
         | grep "$INPUT_TOPIC" | awk '{sum+=$3}END{print sum}')
+
+    # Reject stale offsets: if offset is already at TOTAL, reset is broken
+    if [ -n "$OFFSET" ] && [ "$OFFSET" -ge "$TOTAL" ] 2>/dev/null; then
+        echo "  ERROR: Consumer group offset is already at $OFFSET (stale from previous run)."
+        echo "  Consumer group delete failed. Retrying cleanup..."
+        $KAFKA_DIR/bin/kafka-consumer-groups.sh \
+            --bootstrap-server $KAFKA_BROKER \
+            --group $CONSUMER_GROUP --delete 2>/dev/null || true
+        sleep 3
+        WAIT_COUNT=0
+        continue
+    fi
+
     [ -n "$OFFSET" ] && [ "$OFFSET" -gt 0 ] 2>/dev/null && break
     WAIT_COUNT=$((WAIT_COUNT + 1))
     if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
