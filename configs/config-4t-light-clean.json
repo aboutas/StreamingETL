@@ -7,7 +7,7 @@
       "params": {
         "sensor": "light",
         "field": "measurement",
-        "threshold": 100
+        "threshold": 300
       }
     },
     {

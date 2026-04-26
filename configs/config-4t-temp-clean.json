@@ -7,7 +7,7 @@
       "params": {
         "sensor": "temperature",
         "field": "measurement",
-        "threshold": 20
+        "threshold": 25
       }
     },
     {

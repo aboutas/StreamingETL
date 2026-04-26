@@ -7,7 +7,7 @@
       "params": {
         "sensor": "humidity",
         "field": "measurement",
-        "threshold": 30
+        "threshold": 50
       }
     },
     {

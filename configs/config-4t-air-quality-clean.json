@@ -3,14 +3,6 @@
   "source": "kafka://etl.input.v1",
   "transformations": [
     {
-      "type": "filter_greater",
-      "params": {
-        "sensor": "air_quality",
-        "field": "measurement",
-        "threshold": 50
-      }
-    },
-    {
       "type": "to_lowercase",
       "params": {
         "field": "location"
@@ -26,6 +18,12 @@
       "type": "to_uppercase",
       "params": {
         "field": "data_quality"
+      }
+    },
+    {
+      "type": "trim_whitespace",
+      "params": {
+        "field": "measurement_unit"
       }
     }
   ]

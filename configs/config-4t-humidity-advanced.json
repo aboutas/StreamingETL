@@ -3,23 +3,21 @@
   "source": "kafka://etl.input.v1",
   "transformations": [
     {
-      "type": "filter_greater",
-      "params": {
-        "sensor": "humidity",
-        "field": "measurement",
-        "threshold": 60
-      }
-    },
-    {
-      "type": "to_uppercase",
+      "type": "to_lowercase",
       "params": {
         "field": "sensor"
       }
     },
     {
-      "type": "trim_whitespace",
+      "type": "to_uppercase",
       "params": {
         "field": "location"
+      }
+    },
+    {
+      "type": "trim_whitespace",
+      "params": {
+        "field": "data_quality"
       }
     },
     {

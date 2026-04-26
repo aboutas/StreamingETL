@@ -7,7 +7,7 @@
       "params": {
         "sensor": "pressure",
         "field": "measurement",
-        "threshold": 900
+        "threshold": 1000
       }
     },
     {

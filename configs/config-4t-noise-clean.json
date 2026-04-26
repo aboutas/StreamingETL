@@ -3,11 +3,9 @@
   "source": "kafka://etl.input.v1",
   "transformations": [
     {
-      "type": "filter_greater",
+      "type": "to_uppercase",
       "params": {
-        "sensor": "noise",
-        "field": "measurement",
-        "threshold": 40
+        "field": "measurement_unit"
       }
     },
     {
@@ -25,7 +23,7 @@
     {
       "type": "to_uppercase",
       "params": {
-        "field": "measurement_unit"
+        "field": "location"
       }
     }
   ]
