@@ -34,7 +34,7 @@ scp run-benchmark.sh avoutas@clu04.softnet.tuc.gr:/home/avoutas/boutasThesis/
 
 ssh avoutas@clu04.softnet.tuc.gr
 cd /home/avoutas/boutasThesis
-chmod +x run-benchmark.sh
+chmod +x run-benchmark2.sh
 
 ################################################################################
 # PHASE 4: SETUP (manual, before benchmarks)
@@ -45,10 +45,10 @@ chmod +x run-benchmark.sh
 ### Step 1: Reset topics (delete + recreate all 3)
 
 cd /usr/hdp/current/kafka-broker
-
 bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.config.v1 2>/dev/null || true
-so
-sleep 5
+bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.input.v1 2>/dev/null || true
+bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.output.v1 2>/dev/null || true
+sleep 35
 bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication-factor 2 --partitions 4 --topic etl.config.v1
 bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication-factor 2 --partitions 4 --topic etl.input.v1
 bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication-factor 2 --partitions 4 --topic etl.output.v1
@@ -58,12 +58,13 @@ bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication
 cd /home/avoutas/boutasThesis
 
 # Start API in background
+
 java -jar etl-api-1.0.0.jar \
     --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
     --kafka.config.topic=etl.config.v1 \
     --server.port=8080 &
-
  java -jar etl-api-1.0.0.jar --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 --kafka.config.topic=etl.config.v1 --server.port=8080    
+
 
 # Wait for Spring Boot to start (watch for "Started EtlApiApplication" in logs)
 # Then verify API is alive:
@@ -71,41 +72,23 @@ curl -s http://localhost:8080/health
 
 # === 1-TRANSFORMATION CONFIGS (pick 1/2/4/6/8) ===
 
-# 1 config
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-filter-temp.json
-
-# 2 configs (add)
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-filter-humidity.json
-
-# 4 configs (add)
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-lowercase-location.json
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-trim-sensor.json
-
-# 6 configs (add)
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-filter-pressure.json
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-filter-light.json
-
-# 8 configs (add)
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-uppercase-unit.json
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-1t-trim-location.json
 
 # === 4-TRANSFORMATION CONFIGS (pick 1/2/4/6/8) ===
 
-# 1 config
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-temp-clean.json
-
-# 2 configs (add)
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-humidity-clean.json
-
-# 4 configs (add)
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-light-clean.json
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-pressure-clean.json
-
-# 6 configs (add)
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-air-quality-clean.json
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-noise-clean.json
-
-# 8 configs (add)
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-temp-advanced.json
 curl -X POST http://localhost:8080/config -H "Content-Type: application/json" -d @configs/config-4t-humidity-advanced.json
 
@@ -120,14 +103,19 @@ cd /home/avoutas/boutasThesis
 
 # Change --producer.max.records for different test sizes
 # Producer generates 48 records/cycle (8 locations x 6 sensor types)
-java -jar etl-file-producer-1.0.0.jar \
-    --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
-    --kafka.input.topic=etl.input.v1 \
-    --producer.max.records=2000000 \
-    --producer.rate.per.sec=50000
 
-# Wait for completion (logs: "Random data production COMPLETED")
-# Producer exits automatically when max records reached
+bin/kafka-topics.sh --delete --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.input.v1 2>/dev/null || true
+bin/kafka-topics.sh --delete    --zookeeper clu01.softnet.tuc.gr:2182 --topic etl.config.v1 2>/dev/null || true
+sleep 30
+bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication-factor 2 --partitions 4 --topic etl.input.v1
+bin/kafka-topics.sh --create --zookeeper clu01.softnet.tuc.gr:2182 --replication-factor 2 --partitions 4 --topic etl.config.v1
+
+    java -jar etl-file-producer-1.0.0.jar \
+        --kafka.bootstrap.servers=clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667 \
+        --kafka.input.topic=etl.input.v1 \
+        --producer.max.records=5000000 \
+        --producer.rate.per.sec=50000
+
 
 ### Step 4: Verify record counts
 
