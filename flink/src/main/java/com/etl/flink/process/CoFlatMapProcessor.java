@@ -25,9 +25,14 @@ import java.util.Map;
  */
 public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorEvent, EtlResult> {
     private static final Logger LOG = LoggerFactory.getLogger(CoFlatMapProcessor.class);
+
+    // Flink managed state — written for fault tolerance, rebuilt from earliest offset on restart
     private transient MapState<String, EtlConfig> configState;
-    // Cache transformation functions per config jobId to avoid recreating per event
-    private final Map<String, List<org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent>>> transformationCache = new HashMap<>();
+
+    // In-memory caches — no Flink state deserialization overhead on the hot path
+    private transient Map<String, EtlConfig> localConfigCache;
+    private transient Map<String, List<org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent>>> transformationCache;
+    private transient Map<String, List<Transformation>> aggregationCache;
 
     @Override
     public void open(Configuration parameters) throws Exception {
@@ -35,6 +40,9 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         configState = getRuntimeContext().getMapState(
                 new MapStateDescriptor<>("configs-by-key", String.class, EtlConfig.class)
         );
+        localConfigCache = new HashMap<>();
+        transformationCache = new HashMap<>();
+        aggregationCache = new HashMap<>();
     }
 
     @Override
@@ -42,21 +50,24 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         LOG.info("Received config for job: {} on subtask: {}",
                 config.getJobId(), getRuntimeContext().getIndexOfThisSubtask());
 
-        // Store config by jobId - only configs for THIS key group
         configState.put(config.getJobId(), config);
+        localConfigCache.put(config.getJobId(), config);
 
-        // Pre-build and cache transformation functions for this config
+        // Pre-build and cache transformation functions — done once per config, not per event
+        List<org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent>> elemFns = new ArrayList<>();
+        List<Transformation> aggTs = new ArrayList<>();
         if (config.getTransformations() != null) {
-            List<org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent>> cached = new ArrayList<>();
             for (Transformation t : config.getTransformations()) {
                 if (isElementTransformation(t.getType())) {
-                    cached.add(ElementTransformations.createTransformation(t.getType(), t.getParams()));
+                    elemFns.add(ElementTransformations.createTransformation(t.getType(), t.getParams()));
+                } else if (isAggregationTransformation(t.getType())) {
+                    aggTs.add(t);
                 }
             }
-            transformationCache.put(config.getJobId(), cached);
         }
+        transformationCache.put(config.getJobId(), elemFns);
+        aggregationCache.put(config.getJobId(), aggTs);
 
-        // Emit configuration status result
         EtlResult configResult = new EtlResult();
         configResult.setJobId(config.getJobId());
         configResult.setTransformations(config.getTransformations());
@@ -69,14 +80,14 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
 
     @Override
     public void flatMap2(SensorEvent event, Collector<EtlResult> out) throws Exception {
-        // Process this event against configs stored in THIS subtask's key group
-        Iterable<Map.Entry<String, EtlConfig>> configs = configState.entries();
+        if (localConfigCache.isEmpty()) {
+            LOG.debug("No configs available on subtask: {}, dropping event with sensor: {}",
+                     getRuntimeContext().getIndexOfThisSubtask(), event.getSensor());
+            return;
+        }
 
-        boolean hasConfigs = false;
-        for (Map.Entry<String, EtlConfig> configEntry : configs) {
-            hasConfigs = true;
+        for (Map.Entry<String, EtlConfig> configEntry : localConfigCache.entrySet()) {
             EtlConfig config = configEntry.getValue();
-
             try {
                 LOG.debug("Processing event with sensor: {} against config: {} on subtask: {}",
                          event.getSensor(), config.getJobId(), getRuntimeContext().getIndexOfThisSubtask());
@@ -87,72 +98,49 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
                 emitErrorResult(event, config, e, out);
             }
         }
-
-        if (!hasConfigs) {
-            LOG.debug("No configs available on subtask: {}, dropping event with sensor: {}",
-                     getRuntimeContext().getIndexOfThisSubtask(), event.getSensor());
-        }
     }
 
     private void processEventWithConfig(SensorEvent event, EtlConfig config, Collector<EtlResult> out) throws Exception {
-        if (config.getTransformations() == null || config.getTransformations().isEmpty()) {
+        List<org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent>> elemFns = transformationCache.get(config.getJobId());
+        List<Transformation> aggTs = aggregationCache.get(config.getJobId());
+
+        boolean noTransformations = (elemFns == null || elemFns.isEmpty()) && (aggTs == null || aggTs.isEmpty());
+        if (noTransformations) {
             createFinalResult(event, config, out);
             return;
         }
 
-        // Separate element transformations and aggregation transformations
-        List<Transformation> elementTransformations = new ArrayList<>();
-        List<Transformation> aggregationTransformations = new ArrayList<>();
-
-        for (Transformation transformation : config.getTransformations()) {
-            if (isElementTransformation(transformation.getType())) {
-                elementTransformations.add(transformation);
-            } else if (isAggregationTransformation(transformation.getType())) {
-                aggregationTransformations.add(transformation);
+        // Apply cached element transformation functions
+        SensorEvent filteredEvent = event;
+        if (elemFns != null) {
+            for (org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent> fn : elemFns) {
+                filteredEvent = applyElementTransformation(filteredEvent, fn);
+                if (filteredEvent == null) break;
             }
         }
 
-        // Strategy: Process each transformation path independently
-        // This allows different sensor filters to work in parallel
-
-        // Process element transformations using cached functions
-        SensorEvent filteredEvent = event;
-        List<org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent>> cachedFunctions = transformationCache.get(config.getJobId());
-        if (cachedFunctions != null) {
-            for (org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent> fn : cachedFunctions) {
-                filteredEvent = applyElementTransformation(filteredEvent, fn);
-                if (filteredEvent == null) {
-                    break;
+        // Process aggregation transformations
+        boolean hasValidAggregations = false;
+        if (aggTs != null) {
+            for (Transformation transformation : aggTs) {
+                if (processWindowedAggregation(event, transformation, config, out)) {
+                    hasValidAggregations = true;
                 }
             }
         }
 
-        // Process aggregation transformations - each can have its own sensor filter
-        boolean hasValidAggregations = false;
-        for (Transformation transformation : aggregationTransformations) {
-            // For aggregations, use original event and let each transformation apply its own sensor filter
-            if (processWindowedAggregation(event, transformation, config, out)) {
-                hasValidAggregations = true;
-            }
-        }
-
-        // If we have element transformations that passed and no aggregations, emit the filtered result
-        if (!aggregationTransformations.isEmpty()) {
-            // Aggregations were processed, no need to emit additional results
+        boolean hasAggregations = aggTs != null && !aggTs.isEmpty();
+        if (hasAggregations) {
             if (!hasValidAggregations && filteredEvent != null) {
-                // Element transformations passed but no aggregations matched - emit filtered result
                 createFinalResult(filteredEvent, config, out);
             }
         } else if (filteredEvent != null) {
-            // Only element transformations, emit the result
             LOG.debug("Emitting filter-only result for jobId={}, sensor={}, measurement={}",
                 config.getJobId(), filteredEvent.getSensor(), filteredEvent.getMeasurement());
             createFinalResult(filteredEvent, config, out);
         } else {
-            // filteredEvent is null - event was filtered out
             LOG.debug("Event filtered out for jobId={}, no aggregations", config.getJobId());
         }
-        // If filteredEvent is null and no aggregations matched, the event is completely filtered out
     }
 
     private boolean processWindowedAggregation(SensorEvent event, Transformation transformation,
