@@ -209,18 +209,18 @@ echo ""
 echo "  Output finished at $(date '+%H:%M:%S')"
 
 # Calculate throughputs
-if [ "$DURATION_MS" -gt 0 ]; then
-    INPUT_THROUGHPUT=$((TOTAL * 1000 / DURATION_MS))
-    OUTPUT_THROUGHPUT=$((OUTPUT_COUNT * 1000 / DURATION_MS))
+if [ "$READ_DURATION_MS" -gt 0 ]; then
+    INPUT_THROUGHPUT=$((TOTAL * 1000 / READ_DURATION_MS))
+    READ_THROUGHPUT=$INPUT_THROUGHPUT
 else
     INPUT_THROUGHPUT="N/A (< 1s)"
-    OUTPUT_THROUGHPUT="N/A (< 1s)"
+    READ_THROUGHPUT="N/A (< 1s)"
 fi
 
-if [ "$READ_DURATION_MS" -gt 0 ]; then
-    READ_THROUGHPUT=$((TOTAL * 1000 / READ_DURATION_MS))
+if [ "$DURATION_MS" -gt 0 ]; then
+    OUTPUT_THROUGHPUT=$((OUTPUT_COUNT * 1000 / DURATION_MS))
 else
-    READ_THROUGHPUT="N/A (< 1s)"
+    OUTPUT_THROUGHPUT="N/A (< 1s)"
 fi
 
 # Processing ratio
