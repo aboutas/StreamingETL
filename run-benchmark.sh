@@ -165,6 +165,7 @@ while true; do
     [ "$OFFSET" -ge "$TOTAL" ] && break
     sleep 1
 done
+READ_END_TIME=$(date +%s%N)
 echo ""
 echo "  All input consumed at $(date '+%H:%M:%S')"
 
@@ -200,16 +201,26 @@ DURATION_MS=$(( (END_TIME - START_TIME) / 1000000 ))
 DURATION_S=$((DURATION_MS / 1000))
 DURATION_FRAC=$((DURATION_MS % 1000))
 
+READ_DURATION_MS=$(( (READ_END_TIME - START_TIME) / 1000000 ))
+READ_DURATION_S=$((READ_DURATION_MS / 1000))
+READ_DURATION_FRAC=$((READ_DURATION_MS % 1000))
+
 echo ""
 echo "  Output finished at $(date '+%H:%M:%S')"
 
 # Calculate throughputs
-if [ "$DURATION_S" -gt 0 ]; then
+if [ "$DURATION_MS" -gt 0 ]; then
     INPUT_THROUGHPUT=$((TOTAL * 1000 / DURATION_MS))
     OUTPUT_THROUGHPUT=$((OUTPUT_COUNT * 1000 / DURATION_MS))
 else
     INPUT_THROUGHPUT="N/A (< 1s)"
     OUTPUT_THROUGHPUT="N/A (< 1s)"
+fi
+
+if [ "$READ_DURATION_MS" -gt 0 ]; then
+    READ_THROUGHPUT=$((TOTAL * 1000 / READ_DURATION_MS))
+else
+    READ_THROUGHPUT="N/A (< 1s)"
 fi
 
 # Processing ratio
@@ -228,6 +239,8 @@ echo "  Configs:            $CONFIGS"
 echo "  Input records:      $TOTAL"
 echo "  Output records:     $OUTPUT_COUNT"
 echo "  Processing ratio:   ${RATIO}%"
+echo "  Read time (input):  ${READ_DURATION_S}.${READ_DURATION_FRAC}s"
+echo "  Read throughput:    ${READ_THROUGHPUT} rec/sec"
 echo "  End-to-end time:    ${DURATION_S}.${DURATION_FRAC}s"
 echo "  Input throughput:   $INPUT_THROUGHPUT rec/sec"
 echo "  Output throughput:  $OUTPUT_THROUGHPUT rec/sec"
