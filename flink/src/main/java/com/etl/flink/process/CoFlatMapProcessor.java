@@ -26,11 +26,7 @@ import java.util.Map;
 public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorEvent, EtlResult> {
     private static final Logger LOG = LoggerFactory.getLogger(CoFlatMapProcessor.class);
 
-    // Flink managed state — written for fault tolerance, rebuilt from earliest offset on restart
     private transient MapState<String, EtlConfig> configState;
-
-    // In-memory caches — no Flink state deserialization overhead on the hot path
-    private transient Map<String, EtlConfig> localConfigCache;
     private transient Map<String, List<org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent>>> transformationCache;
     private transient Map<String, List<Transformation>> aggregationCache;
 
@@ -40,7 +36,6 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         configState = getRuntimeContext().getMapState(
                 new MapStateDescriptor<>("configs-by-key", String.class, EtlConfig.class)
         );
-        localConfigCache = new HashMap<>();
         transformationCache = new HashMap<>();
         aggregationCache = new HashMap<>();
     }
@@ -51,7 +46,6 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
                 config.getJobId(), getRuntimeContext().getIndexOfThisSubtask());
 
         configState.put(config.getJobId(), config);
-        localConfigCache.put(config.getJobId(), config);
 
         // Pre-build and cache transformation functions — done once per config, not per event
         List<org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent>> elemFns = new ArrayList<>();
@@ -80,13 +74,10 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
 
     @Override
     public void flatMap2(SensorEvent event, Collector<EtlResult> out) throws Exception {
-        if (localConfigCache.isEmpty()) {
-            LOG.debug("No configs available on subtask: {}, dropping event with sensor: {}",
-                     getRuntimeContext().getIndexOfThisSubtask(), event.getSensor());
-            return;
-        }
-
-        for (Map.Entry<String, EtlConfig> configEntry : localConfigCache.entrySet()) {
+        Iterable<Map.Entry<String, EtlConfig>> configs = configState.entries();
+        boolean hasConfigs = false;
+        for (Map.Entry<String, EtlConfig> configEntry : configs) {
+            hasConfigs = true;
             EtlConfig config = configEntry.getValue();
             try {
                 LOG.debug("Processing event with sensor: {} against config: {} on subtask: {}",
@@ -97,6 +88,10 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
                          config.getJobId(), getRuntimeContext().getIndexOfThisSubtask(), e);
                 emitErrorResult(event, config, e, out);
             }
+        }
+        if (!hasConfigs) {
+            LOG.debug("No configs available on subtask: {}, dropping event with sensor: {}",
+                     getRuntimeContext().getIndexOfThisSubtask(), event.getSensor());
         }
     }
 
@@ -188,6 +183,8 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
 
     private boolean isAggregationTransformation(String type) {
         return "sum".equals(type) || "max".equals(type) || "min".equals(type) || "avg".equals(type);
+
+        
     }
 
     private SensorEvent applyElementTransformation(SensorEvent event, org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent> fn) throws Exception {
