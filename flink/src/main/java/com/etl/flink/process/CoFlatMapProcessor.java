@@ -5,6 +5,8 @@ import com.etl.flink.model.EtlResult;
 import com.etl.flink.model.SensorEvent;
 import com.etl.flink.model.Transformation;
 import com.etl.flink.udf.ElementTransformations;
+import org.apache.flink.api.common.state.MapState;
+import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
 import org.apache.flink.util.Collector;
@@ -24,14 +26,16 @@ import java.util.Map;
 public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorEvent, EtlResult> {
     private static final Logger LOG = LoggerFactory.getLogger(CoFlatMapProcessor.class);
 
-    private transient Map<String, EtlConfig> configState;
+    private transient MapState<String, EtlConfig> configState;
     private transient Map<String, List<org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent>>> transformationCache;
     private transient Map<String, List<Transformation>> aggregationCache;
 
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
-        configState = new HashMap<>();
+        configState = getRuntimeContext().getMapState(
+                new MapStateDescriptor<>("configs-by-key", String.class, EtlConfig.class)
+        );
         transformationCache = new HashMap<>();
         aggregationCache = new HashMap<>();
     }
@@ -70,7 +74,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
 
     @Override
     public void flatMap2(SensorEvent event, Collector<EtlResult> out) throws Exception {
-        Iterable<Map.Entry<String, EtlConfig>> configs = configState.entrySet();
+        Iterable<Map.Entry<String, EtlConfig>> configs = configState.entries();
         boolean hasConfigs = false;
         for (Map.Entry<String, EtlConfig> configEntry : configs) {
             hasConfigs = true;
