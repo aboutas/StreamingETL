@@ -5,8 +5,6 @@ import com.etl.flink.model.EtlResult;
 import com.etl.flink.model.SensorEvent;
 import com.etl.flink.model.Transformation;
 import com.etl.flink.udf.ElementTransformations;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.configuration.Configuration;
@@ -25,9 +23,8 @@ import java.util.Map;
  * TRUE CoFlatMap implementation with true parallelism.
  * Both config and data streams keyed by same field for optimal distribution.
  */
-public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, String, EtlResult> {
+public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorEvent, EtlResult> {
     private static final Logger LOG = LoggerFactory.getLogger(CoFlatMapProcessor.class);
-    private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
 
     private transient MapState<String, EtlConfig> configState;
     private transient Map<String, List<org.apache.flink.api.common.functions.MapFunction<SensorEvent, SensorEvent>>> transformationCache;
@@ -76,15 +73,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, String,
     }
 
     @Override
-    public void flatMap2(String rawEvent, Collector<EtlResult> out) throws Exception {
-        SensorEvent event;
-        try {
-            event = MAPPER.readValue(rawEvent, SensorEvent.class);
-        } catch (Exception e) {
-            LOG.warn("Failed to deserialize event: {}", rawEvent);
-            return;
-        }
-        if (event == null) return;
+    public void flatMap2(SensorEvent event, Collector<EtlResult> out) throws Exception {
         Iterable<Map.Entry<String, EtlConfig>> configs = configState.entries();
         boolean hasConfigs = false;
         for (Map.Entry<String, EtlConfig> configEntry : configs) {

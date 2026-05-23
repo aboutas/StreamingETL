@@ -14,7 +14,6 @@ import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
-import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingProcessingTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
@@ -98,18 +97,14 @@ public class EtlFlinkJob {
                 .filter(config -> config != null)
                 .keyBy(new ConfigKeyExtractor());
 
-        // Event stream — keyBy on raw string (fast sensor extraction), deserialize inside CoFlatMap
-        KeyedStream<String, String> eventStream = env
+        // Event stream
+        DataStream<SensorEvent> eventStream = env
                 .addSource(dataConsumer)
                 .name("Data Source")
                 .filter(str -> str != null && !str.isEmpty())
-                .keyBy(str -> {
-                    int idx = str.indexOf("\"sensor\":\"");
-                    if (idx < 0) return "unknown";
-                    int start = idx + 10;
-                    int end = str.indexOf("\"", start);
-                    return end > start ? str.substring(start, end) : "unknown";
-                });
+                .map(new EventDeserializer())
+                .filter(event -> event != null)
+                .keyBy(event -> event.getSensor());
 
         // CoFlatMap processing
         DataStream<EtlResult> processedStream = configStream
