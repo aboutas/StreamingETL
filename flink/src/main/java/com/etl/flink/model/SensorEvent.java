@@ -2,7 +2,6 @@ package com.etl.flink.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.time.Instant;
 import java.util.Objects;
 
 public class SensorEvent {
@@ -19,9 +18,7 @@ public class SensorEvent {
     private String measurementUnit;
 
     @JsonProperty("datetime")
-    // Accept any ISO-8601 datetime format (ZonedDateTime, Instant, etc.)
-    // JavaTimeModule handles conversion automatically
-    private Instant datetime;
+    private String datetime;
 
     @JsonProperty("location")
     private String location;
@@ -63,11 +60,11 @@ public class SensorEvent {
         this.measurementUnit = measurementUnit;
     }
 
-    public Instant getDatetime() {
+    public String getDatetime() {
         return datetime;
     }
 
-    public void setDatetime(Instant datetime) {
+    public void setDatetime(String datetime) {
         this.datetime = datetime;
     }
 

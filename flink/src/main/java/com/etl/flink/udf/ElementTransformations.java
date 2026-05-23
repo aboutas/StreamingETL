@@ -42,7 +42,9 @@ public class ElementTransformations {
                 case "measurement":
                     return event.getMeasurement();
                 case "datetime":
-                    return event.getDatetime() != null ? (double) event.getDatetime().toEpochMilli() : null;
+                    try {
+                        return event.getDatetime() != null ? (double) Instant.parse(event.getDatetime()).toEpochMilli() : null;
+                    } catch (Exception e) { return null; }
                 default:
                     return null;
             }
@@ -80,7 +82,9 @@ public class ElementTransformations {
                 case "measurement":
                     return event.getMeasurement();
                 case "datetime":
-                    return event.getDatetime() != null ? (double) event.getDatetime().toEpochMilli() : null;
+                    try {
+                        return event.getDatetime() != null ? (double) Instant.parse(event.getDatetime()).toEpochMilli() : null;
+                    } catch (Exception e) { return null; }
                 default:
                     return null;
             }
@@ -152,7 +156,9 @@ public class ElementTransformations {
                 case "measurement":
                     return event.getMeasurement();
                 case "datetime":
-                    return event.getDatetime() != null ? (double) event.getDatetime().toEpochMilli() : null;
+                    try {
+                        return event.getDatetime() != null ? (double) Instant.parse(event.getDatetime()).toEpochMilli() : null;
+                    } catch (Exception e) { return null; }
                 default:
                     return null;
             }

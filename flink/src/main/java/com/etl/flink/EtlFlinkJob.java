@@ -7,6 +7,9 @@ import com.etl.flink.process.CoFlatMapProcessor;
 import com.etl.flink.process.ConfigKeyExtractor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
@@ -182,13 +185,30 @@ public class EtlFlinkJob {
     }
 
     public static class EventDeserializer implements MapFunction<String, SensorEvent> {
-        static final ObjectMapper MAPPER = new ObjectMapper()
-                .registerModule(new JavaTimeModule());
+        static final JsonFactory FACTORY = new JsonFactory();
 
         @Override
         public SensorEvent map(String value) throws Exception {
             try {
-                return MAPPER.readValue(value, SensorEvent.class);
+                SensorEvent event = new SensorEvent();
+                try (JsonParser p = FACTORY.createParser(value)) {
+                    p.nextToken(); // START_OBJECT
+                    while (p.nextToken() == JsonToken.FIELD_NAME) {
+                        String name = p.getCurrentName();
+                        p.nextToken();
+                        switch (name) {
+                            case "sensor":           event.setSensor(p.getText()); break;
+                            case "measurement":      event.setMeasurement(p.getDoubleValue()); break;
+                            case "measurement_unit": event.setMeasurementUnit(p.getText()); break;
+                            case "location":         event.setLocation(p.getText()); break;
+                            case "data_quality":     event.setDataQuality(p.getText()); break;
+                            case "jobId":            event.setJobId(p.getText()); break;
+                            case "datetime":         event.setDatetime(p.getText()); break;
+                            default: p.skipChildren(); break;
+                        }
+                    }
+                }
+                return event;
             } catch (Exception e) {
                 LOG.error("Failed to deserialize event: {}", value, e);
                 return null;
