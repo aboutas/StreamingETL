@@ -169,14 +169,12 @@ while true; do
 done
 echo ""
 
-# Phase 2: Wait for output to stabilize (no new records for 6 consecutive checks)
-# LAST_GROW_TIME initialized to START_TIME so growth during Phase 1 is not missed.
-# Note: each GetOffsetShell call starts a JVM (~2-3s), so accuracy is bounded by that.
+# Phase 2: Wait for output to stabilize (no new records for 3 consecutive checks)
+# Note: each GetOffsetShell call starts a JVM (~2-3s), so ~9s minimum stabilization.
 echo "  Waiting for output to finish writing..."
 STABLE_COUNT=0
 PREV_OUTPUT=0
-LAST_GROW_TIME=$START_TIME
-while [ $STABLE_COUNT -lt 6 ]; do
+while [ $STABLE_COUNT -lt 3 ]; do
     sleep 0.5
     OUTPUT_COUNT=$($KAFKA_DIR/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
         --broker-list $KAFKA_BROKER --topic $OUTPUT_TOPIC --time -1 2>/dev/null \
@@ -189,26 +187,54 @@ while [ $STABLE_COUNT -lt 6 ]; do
         STABLE_COUNT=$((STABLE_COUNT + 1))
     else
         STABLE_COUNT=0
-        LAST_GROW_TIME=$(date +%s%N)
     fi
     PREV_OUTPUT=$OUTPUT_COUNT
 done
-
-# PRIMARY METRIC: end-to-end time = START_TIME → last output record written
-END_TIME=$LAST_GROW_TIME
-
-# Calculate duration in milliseconds
-DURATION_MS=$(( (END_TIME - START_TIME) / 1000000 ))
-DURATION_S=$((DURATION_MS / 1000))
-DURATION_FRAC=$((DURATION_MS % 1000))
-
 echo ""
 echo "  Output finished at $(date '+%H:%M:%S')"
 
-if [ "$DURATION_MS" -gt 0 ]; then
-    THROUGHPUT=$((TOTAL * 1000 / DURATION_MS))
+# Phase 3: Read exact LogAppendTime from the output topic (ms-accurate, no polling noise).
+# FIRST_OUT_TS = when Flink wrote the first output record (min across all partitions)
+# LAST_OUT_TS  = when Flink wrote the last  output record (max across all partitions)
+echo "  Reading exact Kafka timestamps from output topic..."
+FIRST_OUT_TS=9999999999999
+LAST_OUT_TS=0
+
+while IFS=: read -r _topic partition offset; do
+    [ -z "$offset" ] || [ "$offset" -eq 0 ] && continue
+
+    TS=$($KAFKA_DIR/bin/kafka-console-consumer.sh \
+        --bootstrap-server $KAFKA_BROKERS \
+        --topic $OUTPUT_TOPIC --partition "$partition" \
+        --offset 0 --max-messages 1 \
+        --property print.timestamp=true 2>/dev/null \
+        | head -1 | grep -oE '[0-9]{13}')
+    [ -n "$TS" ] && [ "$TS" -lt "$FIRST_OUT_TS" ] && FIRST_OUT_TS=$TS
+
+    TS=$($KAFKA_DIR/bin/kafka-console-consumer.sh \
+        --bootstrap-server $KAFKA_BROKERS \
+        --topic $OUTPUT_TOPIC --partition "$partition" \
+        --offset $((offset - 1)) --max-messages 1 \
+        --property print.timestamp=true 2>/dev/null \
+        | head -1 | grep -oE '[0-9]{13}')
+    [ -n "$TS" ] && [ "$TS" -gt "$LAST_OUT_TS" ] && LAST_OUT_TS=$TS
+
+done < <($KAFKA_DIR/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+    --broker-list $KAFKA_BROKER --topic $OUTPUT_TOPIC --time -1 2>/dev/null)
+
+if [ "$LAST_OUT_TS" -gt 0 ] && [ "$FIRST_OUT_TS" -lt 9999999999999 ]; then
+    DURATION_MS=$((LAST_OUT_TS - FIRST_OUT_TS))
+    DURATION_S=$((DURATION_MS / 1000))
+    DURATION_FRAC=$((DURATION_MS % 1000))
+    if [ "$DURATION_MS" -gt 0 ]; then
+        THROUGHPUT=$((OUTPUT_COUNT * 1000 / DURATION_MS))
+    else
+        THROUGHPUT="N/A (< 1s)"
+    fi
 else
-    THROUGHPUT="N/A (< 1s)"
+    DURATION_S="N/A"
+    DURATION_FRAC=""
+    THROUGHPUT="N/A"
 fi
 
 echo ""
@@ -220,6 +246,6 @@ echo "  Configs:            $CONFIGS"
 echo "  Input records:      $TOTAL"
 echo "  Output records:     $OUTPUT_COUNT"
 echo ""
-echo "  *** End-to-end time: ${DURATION_S}.${DURATION_FRAC}s ***"
+echo "  *** Processing time: ${DURATION_S}.${DURATION_FRAC}s ***"
 echo "  *** Throughput:      ${THROUGHPUT} rec/sec ***"
 echo "=========================================="
