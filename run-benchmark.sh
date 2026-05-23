@@ -151,32 +151,33 @@ done
 START_TIME=$(date +%s%N)
 echo "  Processing started at $(date '+%H:%M:%S')"
 
-# Phase 1: Poll until all input records consumed
+# Phase 1: Progress display — shows input consumption progress during the run
+# Note: each kafka-consumer-groups.sh call starts a JVM (~2-3s on cluster),
+# so effective poll rate is every ~2-3s regardless of sleep interval.
 while true; do
     OFFSET=$($KAFKA_DIR/bin/kafka-consumer-groups.sh \
         --bootstrap-server $KAFKA_BROKER \
         --group $CONSUMER_GROUP --describe 2>/dev/null \
         | grep "$INPUT_TOPIC" | awk '{sum+=$3}END{print sum}')
-    [ -z "$OFFSET" ] && sleep 1 && continue
+    [ -z "$OFFSET" ] && sleep 0.5 && continue
 
     PERCENT=$((OFFSET * 100 / TOTAL))
     printf "\r  Input progress: %d / %d (%d%%)" "$OFFSET" "$TOTAL" "$PERCENT"
 
     [ "$OFFSET" -ge "$TOTAL" ] && break
-    sleep 1
+    sleep 0.5
 done
-READ_END_TIME=$(date +%s%N)
 echo ""
-echo "  All input consumed at $(date '+%H:%M:%S')"
 
-# Phase 2: Wait for output to stabilize (no new records for 3 consecutive checks)
-# Timer captures the moment output LAST grew, not the confirmation wait after
+# Phase 2: Wait for output to stabilize (no new records for 6 consecutive checks)
+# LAST_GROW_TIME initialized to START_TIME so growth during Phase 1 is not missed.
+# Note: each GetOffsetShell call starts a JVM (~2-3s), so accuracy is bounded by that.
 echo "  Waiting for output to finish writing..."
 STABLE_COUNT=0
 PREV_OUTPUT=0
-LAST_GROW_TIME=$(date +%s%N)
-while [ $STABLE_COUNT -lt 3 ]; do
-    sleep 2
+LAST_GROW_TIME=$START_TIME
+while [ $STABLE_COUNT -lt 6 ]; do
+    sleep 0.5
     OUTPUT_COUNT=$($KAFKA_DIR/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
         --broker-list $KAFKA_BROKER --topic $OUTPUT_TOPIC --time -1 2>/dev/null \
         | awk -F: '{sum += $3} END {print sum}')
@@ -193,7 +194,7 @@ while [ $STABLE_COUNT -lt 3 ]; do
     PREV_OUTPUT=$OUTPUT_COUNT
 done
 
-# STOP timer — last time output grew (excludes stabilization wait)
+# PRIMARY METRIC: end-to-end time = START_TIME → last output record written
 END_TIME=$LAST_GROW_TIME
 
 # Calculate duration in milliseconds
@@ -201,33 +202,13 @@ DURATION_MS=$(( (END_TIME - START_TIME) / 1000000 ))
 DURATION_S=$((DURATION_MS / 1000))
 DURATION_FRAC=$((DURATION_MS % 1000))
 
-READ_DURATION_MS=$(( (READ_END_TIME - START_TIME) / 1000000 ))
-READ_DURATION_S=$((READ_DURATION_MS / 1000))
-READ_DURATION_FRAC=$((READ_DURATION_MS % 1000))
-
 echo ""
 echo "  Output finished at $(date '+%H:%M:%S')"
 
-# Calculate throughputs
-if [ "$READ_DURATION_MS" -gt 0 ]; then
-    INPUT_THROUGHPUT=$((TOTAL * 1000 / READ_DURATION_MS))
-    READ_THROUGHPUT=$INPUT_THROUGHPUT
-else
-    INPUT_THROUGHPUT="N/A (< 1s)"
-    READ_THROUGHPUT="N/A (< 1s)"
-fi
-
 if [ "$DURATION_MS" -gt 0 ]; then
-    OUTPUT_THROUGHPUT=$((OUTPUT_COUNT * 1000 / DURATION_MS))
+    THROUGHPUT=$((TOTAL * 1000 / DURATION_MS))
 else
-    OUTPUT_THROUGHPUT="N/A (< 1s)"
-fi
-
-# Processing ratio
-if [ "$TOTAL" -gt 0 ]; then
-    RATIO=$((OUTPUT_COUNT * 100 / TOTAL))
-else
-    RATIO=0
+    THROUGHPUT="N/A (< 1s)"
 fi
 
 echo ""
@@ -238,10 +219,7 @@ echo "  Parallelism:        $PARALLELISM"
 echo "  Configs:            $CONFIGS"
 echo "  Input records:      $TOTAL"
 echo "  Output records:     $OUTPUT_COUNT"
-echo "  Processing ratio:   ${RATIO}%"
-echo "  Read time (input):  ${READ_DURATION_S}.${READ_DURATION_FRAC}s"
-echo "  Read throughput:    ${READ_THROUGHPUT} rec/sec"
-echo "  End-to-end time:    ${DURATION_S}.${DURATION_FRAC}s"
-echo "  Input throughput:   $INPUT_THROUGHPUT rec/sec"
-echo "  Output throughput:  $OUTPUT_THROUGHPUT rec/sec"
+echo ""
+echo "  *** End-to-end time: ${DURATION_S}.${DURATION_FRAC}s ***"
+echo "  *** Throughput:      ${THROUGHPUT} rec/sec ***"
 echo "=========================================="

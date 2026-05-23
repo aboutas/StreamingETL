@@ -62,6 +62,9 @@ public class EtlFlinkJob {
         consumerProps.setProperty("enable.auto.commit", "true");
         consumerProps.setProperty("session.timeout.ms", "30000");
         consumerProps.setProperty("request.timeout.ms", "40000");
+        consumerProps.setProperty("max.poll.records", "5000");        // 500 → 5000: 10x fewer polls
+        consumerProps.setProperty("fetch.min.bytes", "1048576");      // 1MB batches (default 1 byte)
+        consumerProps.setProperty("fetch.max.wait.ms", "500");        // explicit (same as default)
 
         Properties producerProps = new Properties();
         producerProps.setProperty("bootstrap.servers", kafkaBootstrapServers);
