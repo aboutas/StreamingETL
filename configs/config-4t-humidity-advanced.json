@@ -5,6 +5,7 @@
     {
       "type": "to_lowercase",
       "params": {
+         "sensor": "noise",
         "field": "sensor"
       }
     },
