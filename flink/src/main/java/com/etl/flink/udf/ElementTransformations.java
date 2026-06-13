@@ -3,6 +3,10 @@ package com.etl.flink.udf;
 import com.etl.flink.model.SensorEvent;
 import org.apache.flink.api.common.functions.MapFunction;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Map;
 
 public class ElementTransformations {
@@ -38,7 +42,9 @@ public class ElementTransformations {
                 case "measurement":
                     return event.getMeasurement();
                 case "datetime":
-                    return event.getDatetime() != null ? (double) event.getDatetime().toEpochMilli() : null;
+                    try {
+                        return event.getDatetime() != null ? (double) Instant.parse(event.getDatetime()).toEpochMilli() : null;
+                    } catch (Exception e) { return null; }
                 default:
                     return null;
             }
@@ -76,7 +82,82 @@ public class ElementTransformations {
                 case "measurement":
                     return event.getMeasurement();
                 case "datetime":
-                    return event.getDatetime() != null ? (double) event.getDatetime().toEpochMilli() : null;
+                    try {
+                        return event.getDatetime() != null ? (double) Instant.parse(event.getDatetime()).toEpochMilli() : null;
+                    } catch (Exception e) { return null; }
+                default:
+                    return null;
+            }
+        }
+    }
+
+    /**
+     * Cross-field filtering function that allows filtering based on one sensor type's measurement
+     * while processing events from another sensor type.
+     * Example: "max humidity with temp > 59" - get max humidity only when temperature > 59
+     */
+    public static class CrossFieldFilterFunction implements MapFunction<SensorEvent, SensorEvent> {
+        private final String filterSensor;
+        private final String filterField;
+        private final String filterOperator;
+        private final double filterThreshold;
+        private final String targetSensor;
+
+        public CrossFieldFilterFunction(String filterSensor, String filterField, String filterOperator,
+                                       double filterThreshold, String targetSensor) {
+            this.filterSensor = filterSensor;
+            this.filterField = filterField != null ? filterField : "measurement";
+            this.filterOperator = filterOperator != null ? filterOperator : ">";
+            this.filterThreshold = filterThreshold;
+            this.targetSensor = targetSensor;
+        }
+
+        @Override
+        public SensorEvent map(SensorEvent event) throws Exception {
+            if (targetSensor != null && targetSensor.equals(event.getSensor())) {
+                return event;
+            }
+
+            if (filterSensor != null && filterSensor.equals(event.getSensor())) {
+                Double fieldValue = getFieldValueAsDouble(event, filterField);
+                if (fieldValue != null) {
+                    boolean conditionMet = false;
+                    switch (filterOperator) {
+                        case ">":
+                            conditionMet = fieldValue > filterThreshold;
+                            break;
+                        case "<":
+                            conditionMet = fieldValue < filterThreshold;
+                            break;
+                        case ">=":
+                            conditionMet = fieldValue >= filterThreshold;
+                            break;
+                        case "<=":
+                            conditionMet = fieldValue <= filterThreshold;
+                            break;
+                        case "=":
+                        case "==":
+                            conditionMet = Math.abs(fieldValue - filterThreshold) < 0.001;
+                            break;
+                    }
+
+                    if (conditionMet) {
+                        return event;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private Double getFieldValueAsDouble(SensorEvent event, String field) {
+            switch (field) {
+                case "measurement":
+                    return event.getMeasurement();
+                case "datetime":
+                    try {
+                        return event.getDatetime() != null ? (double) Instant.parse(event.getDatetime()).toEpochMilli() : null;
+                    } catch (Exception e) { return null; }
                 default:
                     return null;
             }
@@ -85,6 +166,7 @@ public class ElementTransformations {
 
     /**
      * Normalize transformation - Min-Max scaling to [0, 1] range
+     * Use case: ML feature preparation, data normalization
      */
     public static class NormalizeFunction implements MapFunction<SensorEvent, SensorEvent> {
         private final String field;
@@ -115,6 +197,7 @@ public class ElementTransformations {
 
     /**
      * To lowercase transformation - Normalize text fields to lowercase
+     * Use case: Standardize location names, sensor types for consistency
      */
     public static class ToLowercaseFunction implements MapFunction<SensorEvent, SensorEvent> {
         private final String field;
@@ -153,6 +236,7 @@ public class ElementTransformations {
 
     /**
      * To uppercase transformation - Normalize text fields to uppercase
+     * Use case: Standardize location names, sensor types for consistency
      */
     public static class ToUppercaseFunction implements MapFunction<SensorEvent, SensorEvent> {
         private final String field;
@@ -191,6 +275,7 @@ public class ElementTransformations {
 
     /**
      * Trim whitespace transformation - Remove leading/trailing spaces
+     * Use case: Clean string fields from data entry errors
      */
     public static class TrimWhitespaceFunction implements MapFunction<SensorEvent, SensorEvent> {
         private final String field;
@@ -245,6 +330,16 @@ public class ElementTransformations {
                     ((Number) thresholdObj).doubleValue() :
                     Double.parseDouble(String.valueOf(thresholdObj));
                 return new FilterLessFunction(field, threshold, sensor);
+            case "filter_cross_field":
+                String filterSensor = (String) params.get("filter_sensor");
+                String filterField = (String) params.get("filter_field");
+                String filterOperator = (String) params.get("filter_operator");
+                Object filterThresholdObj = params.get("filter_threshold");
+                double filterThreshold = filterThresholdObj instanceof Number ?
+                    ((Number) filterThresholdObj).doubleValue() :
+                    Double.parseDouble(String.valueOf(filterThresholdObj));
+                String targetSensor = (String) params.get("target_sensor");
+                return new CrossFieldFilterFunction(filterSensor, filterField, filterOperator, filterThreshold, targetSensor);
             case "normalize":
                 field = (String) params.get("field");
                 Object minObj = params.get("min");

@@ -2,10 +2,12 @@ package com.etl.flink.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.time.Instant;
 import java.util.Objects;
 
 public class SensorEvent {
+    @JsonProperty("jobId")
+    private String jobId;
+
     @JsonProperty("sensor")
     private String sensor;
 
@@ -16,9 +18,7 @@ public class SensorEvent {
     private String measurementUnit;
 
     @JsonProperty("datetime")
-    // Flexible datetime parsing - accepts any ISO-8601 format (ZonedDateTime, Instant, etc.)
-    // JavaTimeModule handles conversion automatically
-    private Instant datetime;
+    private String datetime;
 
     @JsonProperty("location")
     private String location;
@@ -27,6 +27,14 @@ public class SensorEvent {
     private String dataQuality;
 
     public SensorEvent() {}
+
+    public String getJobId() {
+        return jobId;
+    }
+
+    public void setJobId(String jobId) {
+        this.jobId = jobId;
+    }
 
     public String getSensor() {
         return sensor;
@@ -52,11 +60,11 @@ public class SensorEvent {
         this.measurementUnit = measurementUnit;
     }
 
-    public Instant getDatetime() {
+    public String getDatetime() {
         return datetime;
     }
 
-    public void setDatetime(Instant datetime) {
+    public void setDatetime(String datetime) {
         this.datetime = datetime;
     }
 
@@ -81,7 +89,8 @@ public class SensorEvent {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         SensorEvent that = (SensorEvent) o;
-        return Objects.equals(sensor, that.sensor) &&
+        return Objects.equals(jobId, that.jobId) &&
+                Objects.equals(sensor, that.sensor) &&
                 Objects.equals(measurement, that.measurement) &&
                 Objects.equals(measurementUnit, that.measurementUnit) &&
                 Objects.equals(datetime, that.datetime) &&
@@ -91,13 +100,14 @@ public class SensorEvent {
 
     @Override
     public int hashCode() {
-        return Objects.hash(sensor, measurement, measurementUnit, datetime, location, dataQuality);
+        return Objects.hash(jobId, sensor, measurement, measurementUnit, datetime, location, dataQuality);
     }
 
     @Override
     public String toString() {
         return "SensorEvent{" +
-                "sensor='" + sensor + '\'' +
+                "jobId='" + jobId + '\'' +
+                ", sensor='" + sensor + '\'' +
                 ", measurement=" + measurement +
                 ", measurementUnit='" + measurementUnit + '\'' +
                 ", datetime=" + datetime +

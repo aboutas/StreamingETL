@@ -21,13 +21,11 @@ import org.apache.flink.streaming.api.windowing.time.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
+import java.time.Instant;
 import java.util.List;
 
 public class EtlFlinkJob {
     private static final Logger LOG = LoggerFactory.getLogger(EtlFlinkJob.class);
-    private static final ZoneId GREEK_TIMEZONE = ZoneId.of("Europe/Athens"); // UTC+2 (UTC+3 in summer)
 
     public static void main(String[] args) throws Exception {
         LOG.info("Starting ETL Flink Job");
@@ -130,13 +128,30 @@ public class EtlFlinkJob {
     }
 
     public static class EventDeserializer implements MapFunction<String, SensorEvent> {
-        private static final ObjectMapper MAPPER = new ObjectMapper()
-                .registerModule(new JavaTimeModule());
+        private static final com.fasterxml.jackson.core.JsonFactory FACTORY = new com.fasterxml.jackson.core.JsonFactory();
 
         @Override
         public SensorEvent map(String value) throws Exception {
             try {
-                return MAPPER.readValue(value, SensorEvent.class);
+                SensorEvent event = new SensorEvent();
+                try (com.fasterxml.jackson.core.JsonParser p = FACTORY.createParser(value)) {
+                    p.nextToken(); // START_OBJECT
+                    while (p.nextToken() == com.fasterxml.jackson.core.JsonToken.FIELD_NAME) {
+                        String name = p.getCurrentName();
+                        p.nextToken();
+                        switch (name) {
+                            case "sensor":           event.setSensor(p.getText()); break;
+                            case "measurement":      event.setMeasurement(p.getDoubleValue()); break;
+                            case "measurement_unit": event.setMeasurementUnit(p.getText()); break;
+                            case "location":         event.setLocation(p.getText()); break;
+                            case "data_quality":     event.setDataQuality(p.getText()); break;
+                            case "jobId":            event.setJobId(p.getText()); break;
+                            case "datetime":         event.setDatetime(p.getText()); break;
+                            default: p.skipChildren(); break;
+                        }
+                    }
+                }
+                return event;
             } catch (Exception e) {
                 LOG.error("Failed to deserialize event: {}", value, e);
                 return null;
@@ -183,7 +198,7 @@ public class EtlFlinkJob {
             result.setAggregationType(accumulator.aggregationType);
             result.setField(accumulator.field);
             result.setResult(accumulator.getResult());
-            result.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
+            result.setProcessedAt(Instant.now());
             result.setSensorType(accumulator.sensorType);
             result.setMeasurementUnit(accumulator.measurementUnit);
             result.setLocation(accumulator.location);

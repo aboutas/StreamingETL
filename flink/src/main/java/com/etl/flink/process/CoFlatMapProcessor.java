@@ -14,23 +14,22 @@ import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
+ * TRUE CoFlatMap implementation with true parallelism.
  * Both config and data streams keyed by same field for optimal distribution.
  */
 public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorEvent, EtlResult> {
     private static final Logger LOG = LoggerFactory.getLogger(CoFlatMapProcessor.class);
-    private static final ZoneId GREEK_TIMEZONE = ZoneId.of("Europe/Athens"); // UTC+2 (UTC+3 in summer)
 
     private transient MapState<String, EtlConfig> configState;
-    // Cache transformation functions per config jobId to avoid recreating per event
-    private final Map<String, List<MapFunction<SensorEvent, SensorEvent>>> transformationCache = new HashMap<>();
+    private transient Map<String, List<MapFunction<SensorEvent, SensorEvent>>> transformationCache;
+    private transient Map<String, List<Transformation>> aggregationCache;
 
     @Override
     public void open(Configuration parameters) throws Exception {
@@ -38,6 +37,8 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         configState = getRuntimeContext().getMapState(
                 new MapStateDescriptor<>("configs-by-key", String.class, EtlConfig.class)
         );
+        transformationCache = new HashMap<>();
+        aggregationCache = new HashMap<>();
     }
 
     @Override
@@ -45,27 +46,29 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         LOG.info("Received config for job: {} on subtask: {}",
                 config.getJobId(), getRuntimeContext().getIndexOfThisSubtask());
 
-        // Store config by jobId - only configs for THIS key group
         configState.put(config.getJobId(), config);
 
-        // Pre-build and cache transformation functions for this config
+        // Pre-build and cache transformation functions — done once per config, not per event
+        List<MapFunction<SensorEvent, SensorEvent>> elemFns = new ArrayList<>();
+        List<Transformation> aggTs = new ArrayList<>();
         if (config.getTransformations() != null) {
-            List<MapFunction<SensorEvent, SensorEvent>> cached = new ArrayList<>();
             for (Transformation t : config.getTransformations()) {
                 if (isElementTransformation(t.getType())) {
-                    cached.add(ElementTransformations.createTransformation(t.getType(), t.getParams()));
+                    elemFns.add(ElementTransformations.createTransformation(t.getType(), t.getParams()));
+                } else if (isAggregationTransformation(t.getType())) {
+                    aggTs.add(t);
                 }
             }
-            transformationCache.put(config.getJobId(), cached);
         }
+        transformationCache.put(config.getJobId(), elemFns);
+        aggregationCache.put(config.getJobId(), aggTs);
 
-        // Emit configuration status result
         EtlResult configResult = new EtlResult();
         configResult.setJobId(config.getJobId());
         configResult.setTransformations(config.getTransformations());
         configResult.setResult("Configuration registered successfully on subtask " +
                               getRuntimeContext().getIndexOfThisSubtask());
-        configResult.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
+        configResult.setProcessedAt(Instant.now());
 
         out.collect(configResult);
     }
@@ -98,31 +101,19 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
     }
 
     private void processEventWithConfig(SensorEvent event, EtlConfig config, Collector<EtlResult> out) throws Exception {
-        if (config.getTransformations() == null || config.getTransformations().isEmpty()) {
+        List<MapFunction<SensorEvent, SensorEvent>> elemFns = transformationCache.get(config.getJobId());
+        List<Transformation> aggTs = aggregationCache.get(config.getJobId());
+
+        boolean noTransformations = (elemFns == null || elemFns.isEmpty()) && (aggTs == null || aggTs.isEmpty());
+        if (noTransformations) {
             createFinalResult(event, config, out);
             return;
         }
 
-        // Separate element transformations and aggregation transformations
-        List<Transformation> elementTransformations = new ArrayList<>();
-        List<Transformation> aggregationTransformations = new ArrayList<>();
-
-        for (Transformation transformation : config.getTransformations()) {
-            if (isElementTransformation(transformation.getType())) {
-                elementTransformations.add(transformation);
-            } else if (isAggregationTransformation(transformation.getType())) {
-                aggregationTransformations.add(transformation);
-            }
-        }
-
-        // Strategy: Process each transformation path independently
-        // This allows different sensor filters to work in parallel
-
-        // Process element transformations using cached functions
+        // Apply cached element transformation functions
         SensorEvent filteredEvent = event;
-        List<MapFunction<SensorEvent, SensorEvent>> cachedFunctions = transformationCache.get(config.getJobId());
-        if (cachedFunctions != null) {
-            for (MapFunction<SensorEvent, SensorEvent> fn : cachedFunctions) {
+        if (elemFns != null) {
+            for (MapFunction<SensorEvent, SensorEvent> fn : elemFns) {
                 filteredEvent = applyElementTransformation(filteredEvent, fn);
                 if (filteredEvent == null) {
                     break;
@@ -131,24 +122,21 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         }
 
         // Process aggregation transformations - only if event passed element filters
+        boolean hasAggregations = aggTs != null && !aggTs.isEmpty();
         boolean hasValidAggregations = false;
-        if (filteredEvent != null) {
-            for (Transformation transformation : aggregationTransformations) {
+        if (filteredEvent != null && hasAggregations) {
+            for (Transformation transformation : aggTs) {
                 if (processWindowedAggregation(filteredEvent, transformation, config, out)) {
                     hasValidAggregations = true;
                 }
             }
         }
 
-        // If we have element transformations that passed and no aggregations, emit the filtered result
-        if (!aggregationTransformations.isEmpty()) {
-            // Aggregations were processed, no need to emit additional results
+        if (hasAggregations) {
             if (!hasValidAggregations && filteredEvent != null) {
-                // Element transformations passed but no aggregations matched - emit filtered result
                 createFinalResult(filteredEvent, config, out);
             }
         } else if (filteredEvent != null) {
-            // Only element transformations, emit the result
             createFinalResult(filteredEvent, config, out);
         }
         // If filteredEvent is null and no aggregations matched, the event is completely filtered out
@@ -176,7 +164,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         result.setAggregationType(transformation.getType());
         result.setField(field);
         result.setResult(getFieldValue(event, field));
-        result.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
+        result.setProcessedAt(Instant.now());
 
         // Add sensor context information
         result.setSensorType(event.getSensor());
@@ -190,6 +178,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
     private boolean isElementTransformation(String type) {
         return "filter_greater".equals(type) ||
                "filter_less".equals(type) ||
+               "filter_cross_field".equals(type) ||
                "normalize".equals(type) ||
                "to_lowercase".equals(type) ||
                "to_uppercase".equals(type) ||
@@ -202,7 +191,11 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
 
     private SensorEvent applyElementTransformation(SensorEvent event, MapFunction<SensorEvent, SensorEvent> fn) throws Exception {
         try {
-            return fn.map(event);
+            SensorEvent result = fn.map(event);
+            if (result != null) {
+                result.setJobId(event.getJobId());
+            }
+            return result;
         } catch (Exception e) {
             LOG.warn("Element transformation error: {}", e.getMessage());
             return event;
@@ -229,6 +222,8 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
                 return event.getSensor() != null ? event.getSensor() : "unknown";
             case "measurement_unit":
                 return event.getMeasurementUnit() != null ? event.getMeasurementUnit() : "unknown";
+            case "jobId":
+                return event.getJobId() != null ? event.getJobId() : "unknown";
             case "location":
                 return event.getLocation() != null ? event.getLocation() : "unknown";
             case "data_quality":
@@ -250,6 +245,8 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
                 return event.getSensor();
             case "measurement_unit":
                 return event.getMeasurementUnit();
+            case "jobId":
+                return event.getJobId();
             case "location":
                 return event.getLocation();
             case "data_quality":
@@ -268,7 +265,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         result.setGroupingField("sensor");
         result.setGroupingKey(event.getSensor());
         result.setResult(event);
-        result.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
+        result.setProcessedAt(Instant.now());
 
         // Add sensor context information
         result.setSensorType(event.getSensor());
@@ -285,7 +282,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         errorResult.setGroupingField("sensor");
         errorResult.setGroupingKey(event.getSensor());
         errorResult.setResult(null);
-        errorResult.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
+        errorResult.setProcessedAt(Instant.now());
 
         // Add sensor context information for error tracking
         errorResult.setSensorType(event.getSensor());
