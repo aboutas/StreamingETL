@@ -1,4 +1,4 @@
-# ETL Flink Project
+# Streaming ETL
 
 A streaming ETL pipeline built with Apache Flink, Kafka, MongoDB, and Spring Boot. The project ingests sensor data, applies configurable transformations, aggregates results by job definition, and stores the output in MongoDB for downstream analysis.
 
