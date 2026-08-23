@@ -133,7 +133,9 @@ docker exec etl-flink-project-flink-jobmanager-1 flink run \
 
 ### 5) Submit a configuration through the API
 
-Example using the included air-quality config:
+The project is designed to use the ready-made JSON configuration files from the `configurations/` folder.
+
+Examples:
 
 ```bash
 curl -X POST http://localhost:8080/config \
@@ -141,13 +143,33 @@ curl -X POST http://localhost:8080/config \
   -d @configurations/config-air-quality-hot-days.json
 ```
 
+```bash
+curl -X POST http://localhost:8080/config \
+  -H "Content-Type: application/json" \
+  -d @configurations/config-test-filter-greater.json
+```
+
 This sends a job definition to Kafka, and the Flink job begins processing matching sensor events.
 
-## Example Configuration
+## Configuration Files
 
-The configuration files in `configurations/` are JSON payloads that define the job and its transformations.
+The real ETL job definitions are stored in the `configurations/` directory. These are the files you should submit as payloads to the API.
 
-Example:
+Available examples include:
+
+- `config-air-quality-hot-days.json`
+- `config-cold-humid-rooms.json`
+- `config-light-high-humidity.json`
+- `config-noise-levels.json`
+- `config-pressure-monitoring.json`
+- `config-test-filter-greater.json`
+- `config-test-filter-less.json`
+- `config-test-normalize.json`
+- `config-test-text-cleaning.json`
+
+Each file contains a jobId and a list of transformations such as filters, normalization, and aggregations.
+
+Example file structure:
 
 ```json
 {
@@ -194,15 +216,24 @@ Response example:
 
 ### Submit config
 
+Use one of the ready-made files from the `configurations/` folder instead of creating an ad-hoc inline JSON payload.
+
 ```bash
 curl -X POST http://localhost:8080/config \
   -H "Content-Type: application/json" \
-  -d '{
-    "jobId": "sample-job",
-    "transformations": [
-      {"type": "filter_greater", "params": {"sensor": "air_quality", "field": "measurement", "threshold": 50}}
-    ]
-  }'
+  -d @configurations/config-air-quality-hot-days.json
+```
+
+Other valid examples:
+
+```bash
+curl -X POST http://localhost:8080/config \
+  -H "Content-Type: application/json" \
+  -d @configurations/config-test-filter-greater.json
+
+curl -X POST http://localhost:8080/config \
+  -H "Content-Type: application/json" \
+  -d @configurations/config-test-normalize.json
 ```
 
 ## Access Points
