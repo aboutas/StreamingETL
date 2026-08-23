@@ -8,7 +8,6 @@ import com.etl.flink.process.CoFlatMapProcessor;
 import com.etl.flink.process.ConfigKeyExtractor;
 import com.etl.flink.sink.MongoSink;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.functions.MapFunction;
@@ -33,12 +32,9 @@ public class EtlFlinkJob {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.enableCheckpointing(30000);
 
-        env.setParallelism(4);
-
         String kafkaBootstrapServers = getEnvOrDefault("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092");
         String configTopic = getEnvOrDefault("CONFIG_TOPIC", "etl.config.v1");
         String inputTopic = getEnvOrDefault("INPUT_TOPIC", "etl.input.v1");
-        //String outputTopic = getEnvOrDefault("OUTPUT_TOPIC", "etl.output.v1");
         String mongoUri = getEnvOrDefault("MONGO_URI", "mongodb://mongo:27017/etl_db");
 
         LOG.info("Config: kafka={}, topics=[config={}, input={}], mongo={}",
@@ -102,7 +98,7 @@ public class EtlFlinkJob {
         DataStream<EtlResult> allResults = configResults.union(windowedResults);
 
         // SINK: MongoDB
-        allResults.addSink(new MongoSink(mongoUri));
+        allResults.addSink(new MongoSink(mongoUri)).name("MongoDB Sink");
 
         LOG.info("Executing ETL Flink Job");
         env.execute("ETL Flink Job");
@@ -208,11 +204,7 @@ public class EtlFlinkJob {
 
         @Override
         public WindowAccumulator merge(WindowAccumulator a, WindowAccumulator b) {
-            a.sum += b.sum;
-            a.count += b.count;
-            if (b.max > a.max) a.max = b.max;
-            if (b.min < a.min) a.min = b.min;
-            return a;
+            throw new UnsupportedOperationException("Merge not supported for Tumbling Windows");
         }
     }
 

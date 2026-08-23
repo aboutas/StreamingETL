@@ -84,8 +84,6 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
             EtlConfig config = configEntry.getValue();
 
             try {
-                LOG.debug("Processing event with sensor: {} against config: {} on subtask: {}",
-                         event.getSensor(), config.getJobId(), getRuntimeContext().getIndexOfThisSubtask());
                 processEventWithConfig(event, config, out);
             } catch (Exception e) {
                 LOG.error("Error processing event with config for jobId: {} on subtask: {}",
@@ -95,7 +93,7 @@ public class CoFlatMapProcessor extends RichCoFlatMapFunction<EtlConfig, SensorE
         }
 
         if (!hasConfigs) {
-            LOG.debug("No configs available on subtask: {}, dropping event with sensor: {}",
+            LOG.trace("No configs on subtask: {}, dropping event: {}",
                      getRuntimeContext().getIndexOfThisSubtask(), event.getSensor());
         }
     }

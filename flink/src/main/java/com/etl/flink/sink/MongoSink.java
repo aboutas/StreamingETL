@@ -6,9 +6,7 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.model.IndexOptions;
-import com.mongodb.client.model.Indexes;
-import com.mongodb.client.model.UpdateOptions;
+import com.mongodb.client.model.ReplaceOptions;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.bson.Document;
@@ -18,9 +16,8 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class MongoSink extends RichSinkFunction<EtlResult> {
     private static final Logger LOG = LoggerFactory.getLogger(MongoSink.class);
@@ -29,6 +26,7 @@ public class MongoSink extends RichSinkFunction<EtlResult> {
     private final String mongoUri;
     private transient MongoClient mongoClient;
     private transient MongoDatabase database;
+    private transient Set<String> indexedCollections;
 
     public MongoSink(String mongoUri) {
         this.mongoUri = mongoUri;
@@ -39,15 +37,13 @@ public class MongoSink extends RichSinkFunction<EtlResult> {
         super.open(parameters);
         mongoClient = MongoClients.create(mongoUri);
         database = mongoClient.getDatabase("etl_db");
+        indexedCollections = ConcurrentHashMap.newKeySet();
         LOG.info("MongoDB sink initialized with URI: {}", mongoUri);
     }
 
-    private void createUniqueIndexForCollection(MongoCollection<Document> collection, String collectionName) {
-        try {
-            collection.createIndex(Indexes.ascending("_id"), new IndexOptions().unique(true));
-            LOG.info("Created unique index on _id field for collection: {}", collectionName);
-        } catch (Exception e) {
-            LOG.warn("Index may already exist for collection {}: {}", collectionName, e.getMessage());
+    private void ensureIndex(String collectionName) {
+        if (indexedCollections.add(collectionName)) {
+            LOG.info("Registered new collection: {}", collectionName);
         }
     }
 
@@ -55,7 +51,6 @@ public class MongoSink extends RichSinkFunction<EtlResult> {
         if (jobId == null || jobId.trim().isEmpty()) {
             return "unknown_job";
         }
-        // Replace invalid characters with underscores
         return jobId.replaceAll("[^a-zA-Z0-9_]", "_");
     }
 
@@ -66,22 +61,17 @@ public class MongoSink extends RichSinkFunction<EtlResult> {
             result.setId(id);
             result.setProcessedAt(ZonedDateTime.now(GREEK_TIMEZONE).toInstant());
 
-            // Get collection name based on jobId
             String collectionName = sanitizeCollectionName(result.getJobId());
-            MongoCollection<Document> collection = database.getCollection(collectionName);
-
-            // Ensure index exists for this collection (idempotent operation)
-            createUniqueIndexForCollection(collection, collectionName);
+            ensureIndex(collectionName);
 
             Document doc = convertToDocument(result);
 
-            collection.updateOne(
+            MongoCollection<Document> collection = database.getCollection(collectionName);
+            collection.replaceOne(
                     new Document("_id", id),
-                    new Document("$set", doc),
-                    new UpdateOptions().upsert(true)
+                    doc,
+                    new ReplaceOptions().upsert(true)
             );
-
-            LOG.debug("Upserted document with ID: {} to collection: {}", id, collectionName);
         } catch (Exception e) {
             LOG.error("Error writing to MongoDB", e);
             throw e;

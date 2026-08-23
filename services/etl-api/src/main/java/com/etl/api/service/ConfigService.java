@@ -54,7 +54,7 @@ public class ConfigService {
         props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
 
         kafkaProducer = new KafkaProducer<>(props);
-        LOG.info("Kafka producer initialized", kafkaBootstrapServers);
+        LOG.info("Kafka producer initialized: {}", kafkaBootstrapServers);
     }
 
     @PreDestroy
@@ -87,12 +87,10 @@ public class ConfigService {
                 if (exception != null) {
                     LOG.error("Failed to publish config for job: {}", config.getJobId(), exception);
                 } else {
-                    LOG.info("Config published successfully for job: {} to partition: {}",
+                    LOG.info("Config published for job: {} to partition: {}",
                             config.getJobId(), metadata.partition());
                 }
             });
-
-            LOG.info("Config submitted for job: {}", config.getJobId());
 
         } catch (Exception e) {
             LOG.error("Error publishing config", e);

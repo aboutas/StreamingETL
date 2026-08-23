@@ -62,9 +62,8 @@ public class FileProducerService {
         kafkaProducer = new KafkaProducer<>(props);
         objectMapper = new ObjectMapper();
 
-        LOG.info("Kafka producer initialized: {}", kafkaBootstrapServers);
-        LOG.info("Input topic: {}", inputTopic);
-        LOG.info("Rate per second: {}", ratePerSec);
+        LOG.info("Kafka producer initialized: {}, topic: {}, rate: {} msg/sec",
+                kafkaBootstrapServers, inputTopic, ratePerSec);
     }
 
     private void startRandomDataProduction() {
@@ -98,8 +97,8 @@ public class FileProducerService {
                         }
 
                         if (messageCount % 100 == 0) {
-                            LOG.info("Sent {} comprehensive messages to Kafka (all sensors for all rooms)", messageCount);
-                            logDataGenerationStats(messageCount);
+                            LOG.info("Sent {} messages ({} locations x {} sensors, {} msg/sec)",
+                                    messageCount, locations.length, sensorTypes.length, ratePerSec);
                         }
 
                         Thread.sleep(intervalMs);
@@ -163,12 +162,6 @@ public class FileProducerService {
                     // Round to 1 decimal place
                     measurement = Math.round(measurement * 10.0) / 10.0;
 
-                    // Validate measurement before creating JSON
-                    if (!isValidMeasurement(sensorType, measurement)) {
-                        LOG.warn("Invalid measurement for sensor type {}: {}. Skipping.", sensorType, measurement);
-                        continue;
-                    }
-
                     var jsonObject = objectMapper.createObjectNode();
                     jsonObject.put("sensor", sensorType);
                     jsonObject.put("measurement", measurement);
@@ -224,25 +217,6 @@ public class FileProducerService {
         return Math.max(30.0, Math.min(80.0, noise));
     }
 
-    private boolean isValidMeasurement(String sensorType, double measurement) {
-        switch (sensorType) {
-            case "temperature":
-                return measurement >= -30.0 && measurement <= 70.0; 
-            case "pressure":
-                return measurement >= 950.0 && measurement <= 1080.0; // Atmospheric pressure range
-            case "humidity":
-                return measurement >= 0.0 && measurement <= 100.0; // Percentage range
-            case "air_quality":
-                return measurement >= 0.0 && measurement <= 500.0; // AQI scale
-            case "light":
-                return measurement >= 0.0 && measurement <= 2000.0; // Lux range
-            case "noise":
-                return measurement >= 20.0 && measurement <= 120.0; // Decibel range
-            default:
-                return measurement >= 0.0 && measurement <= 1000.0; // Generic range
-        }
-    }
-
     private String calculateDataQuality(String sensorType, double measurement) {
         // Calculate quality score based on expected ranges for sensor type
         double qualityScore = 1.0; // Start with perfect quality
@@ -274,11 +248,6 @@ public class FileProducerService {
         else if (qualityScore >= 0.85) return "good";
         else if (qualityScore >= 0.75) return "fair";
         else return "poor";
-    }
-
-    private void logDataGenerationStats(long messageCount) {
-        LOG.info("Stats: {} messages, {} locations x {} sensors, {} msg/sec",
-                messageCount, locations.length, sensorTypes.length, ratePerSec);
     }
 
     private String generateKey(String json) {
